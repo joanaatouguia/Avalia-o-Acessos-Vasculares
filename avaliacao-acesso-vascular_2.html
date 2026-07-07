@@ -1,0 +1,1024 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avaliação do Acesso Vascular</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --paper:#F5F3EC;
+  --panel:#FFFFFF;
+  --ink:#152522;
+  --ink-soft:#4B5A56;
+  --vein-deep:#0B3D3A;
+  --vein-deep-2:#0F4F49;
+  --vein-bright:#17B890;
+  --vein-bright-soft:#DCF3EB;
+  --alert:#C1443C;
+  --alert-soft:#F8E2E0;
+  --amber:#B8862B;
+  --amber-soft:#F5EBD6;
+  --sand:#E4DFD1;
+  --sand-2:#EFEBDF;
+  --mono:'IBM Plex Mono',monospace;
+  --disp:'Space Grotesk',sans-serif;
+  --body:'IBM Plex Sans',sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  color:var(--ink);
+  font-family:var(--body);
+  min-height:100vh;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--vein-bright-soft);}
+a{color:inherit;}
+button{font-family:inherit;}
+
+/* ---------- Shell ---------- */
+.shell{display:flex;min-height:100vh;}
+.sidebar{
+  width:248px;flex-shrink:0;background:var(--vein-deep);
+  color:#EAF3F0;display:flex;flex-direction:column;
+  position:sticky;top:0;height:100vh;
+}
+.brand{padding:26px 22px 18px;border-bottom:1px solid rgba(255,255,255,.1);}
+.brand-mark{display:flex;align-items:center;gap:10px;}
+.brand-mark svg{flex-shrink:0;}
+.brand-title{font-family:var(--disp);font-weight:700;font-size:17px;line-height:1.15;letter-spacing:.2px;}
+.brand-sub{font-family:var(--mono);font-size:10.5px;color:#9FC6BE;margin-top:5px;letter-spacing:.4px;text-transform:uppercase;}
+
+.wave{width:100%;height:34px;margin-top:14px;}
+.wave path{fill:none;stroke:var(--vein-bright);stroke-width:1.6;}
+
+nav.nav{padding:14px 12px;display:flex;flex-direction:column;gap:2px;flex:1;}
+.nav-item{
+  display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:9px;
+  color:#CFE3DE;text-decoration:none;font-size:13.5px;font-weight:500;cursor:pointer;
+  border:none;background:none;text-align:left;width:100%;font-family:inherit;
+  transition:background .12s ease,color .12s ease;
+}
+.nav-item svg{flex-shrink:0;opacity:.85;}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#fff;}
+.nav-item.active{background:var(--vein-bright);color:#06231F;font-weight:600;}
+.nav-item.active svg{opacity:1;}
+.nav-foot{padding:16px 22px;border-top:1px solid rgba(255,255,255,.1);font-family:var(--mono);font-size:10px;color:#7FA69D;line-height:1.5;}
+
+.main{flex:1;min-width:0;padding:30px 38px 60px;max-width:1180px;}
+.pagehead{margin-bottom:26px;}
+.eyebrow{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--vein-deep-2);font-weight:600;}
+.pagehead h1{font-family:var(--disp);font-size:26px;margin:4px 0 6px;font-weight:700;}
+.pagehead p{margin:0;color:var(--ink-soft);font-size:14px;max-width:640px;line-height:1.5;}
+
+/* ---------- Cards / grid ---------- */
+.grid{display:grid;gap:16px;}
+.grid-4{grid-template-columns:repeat(4,1fr);}
+.grid-3{grid-template-columns:repeat(3,1fr);}
+.grid-2{grid-template-columns:1.3fr 1fr;}
+@media (max-width:980px){.grid-4{grid-template-columns:repeat(2,1fr);}.grid-2,.grid-3{grid-template-columns:1fr;}}
+
+.card{
+  background:var(--panel);border:1px solid var(--sand);border-radius:14px;
+  padding:20px 22px;
+}
+.stat-card{padding:18px 20px;}
+.stat-label{font-family:var(--mono);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px;color:var(--ink-soft);}
+.stat-value{font-family:var(--disp);font-size:32px;font-weight:700;margin-top:8px;color:var(--vein-deep);}
+.stat-value.alert{color:var(--alert);}
+.stat-sub{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+
+.card h3{font-family:var(--disp);font-size:15px;margin:0 0 14px;font-weight:600;}
+.card h3 .muted{color:var(--ink-soft);font-weight:500;font-size:12px;}
+
+/* ---------- Buttons / inputs ---------- */
+.btn{
+  display:inline-flex;align-items:center;gap:7px;padding:10px 16px;border-radius:9px;
+  border:1px solid var(--vein-deep);background:var(--vein-deep);color:#fff;font-size:13.5px;
+  font-weight:600;cursor:pointer;font-family:inherit;transition:transform .08s ease,background .12s;
+}
+.btn:hover{background:var(--vein-deep-2);}
+.btn:active{transform:scale(.98);}
+.btn.secondary{background:transparent;color:var(--vein-deep);border:1px solid var(--sand);}
+.btn.secondary:hover{background:var(--sand-2);}
+.btn.danger{background:var(--alert);border-color:var(--alert);}
+.btn.small{padding:7px 12px;font-size:12.5px;border-radius:7px;}
+.btn:disabled{opacity:.45;cursor:not-allowed;}
+
+label{display:block;font-size:12.5px;font-weight:600;color:var(--ink-soft);margin-bottom:6px;}
+input[type=text],input[type=date],input[type=number],select,textarea{
+  width:100%;padding:10px 12px;border-radius:8px;border:1px solid var(--sand);
+  background:#FCFBF8;font-family:inherit;font-size:13.5px;color:var(--ink);
+}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--vein-bright);outline-offset:1px;border-color:var(--vein-bright);}
+.field{margin-bottom:16px;}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media (max-width:640px){.field-row{grid-template-columns:1fr;}}
+
+.seg{display:flex;border:1px solid var(--sand);border-radius:8px;overflow:hidden;}
+.seg button{
+  flex:1;padding:9px 10px;border:none;background:#FCFBF8;font-size:12.5px;font-weight:600;
+  color:var(--ink-soft);cursor:pointer;border-right:1px solid var(--sand);font-family:inherit;
+}
+.seg button:last-child{border-right:none;}
+.seg button.on{background:var(--vein-deep);color:#fff;}
+.seg button.on.alertmode{background:var(--alert);}
+
+/* ---------- Table ---------- */
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{
+  text-align:left;font-family:var(--mono);font-size:10.5px;text-transform:uppercase;
+  letter-spacing:.4px;color:var(--ink-soft);padding:8px 10px;border-bottom:1px solid var(--sand);
+}
+td{padding:11px 10px;border-bottom:1px solid var(--sand-2);vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr.rowclick{cursor:pointer;}
+tr.rowclick:hover td{background:var(--sand-2);}
+.qa-figure{font-family:var(--mono);font-weight:600;}
+
+/* ---------- Badges ---------- */
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:20px;font-size:11.5px;font-weight:600;}
+.badge.ok{background:var(--vein-bright-soft);color:#0A5C48;}
+.badge.alert{background:var(--alert-soft);color:var(--alert);}
+.badge.warn{background:var(--amber-soft);color:var(--amber);}
+.badge.neutral{background:var(--sand-2);color:var(--ink-soft);}
+.badge .dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+
+.tag-fav{background:#E3EEFB;color:#1D4F8C;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;font-family:var(--mono);}
+.tag-eav{background:#F3E7F9;color:#6B2F8C;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;font-family:var(--mono);}
+
+/* mini waveform swatches for sopro type */
+.mini-wave{display:inline-block;vertical-align:middle;}
+
+/* ---------- Empty state ---------- */
+.empty{
+  text-align:center;padding:44px 20px;color:var(--ink-soft);
+}
+.empty svg{margin-bottom:12px;opacity:.55;}
+.empty p{margin:4px 0 16px;font-size:13.5px;}
+
+/* ---------- Modal ---------- */
+.overlay{
+  position:fixed;inset:0;background:rgba(11,30,28,.45);display:flex;align-items:center;
+  justify-content:center;z-index:50;padding:20px;
+}
+.modal{
+  background:var(--panel);border-radius:16px;max-width:640px;width:100%;
+  max-height:88vh;overflow-y:auto;padding:26px 28px 28px;
+}
+.modal-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px;}
+.modal-head h2{font-family:var(--disp);font-size:19px;margin:0;}
+.modal-close{background:none;border:none;cursor:pointer;color:var(--ink-soft);padding:4px;}
+
+.detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:6px;}
+.detail-name{font-family:var(--disp);font-size:20px;font-weight:700;}
+.detail-meta{font-size:12.5px;color:var(--ink-soft);margin-top:4px;}
+.detail-meta span{margin-right:14px;}
+
+.divider{height:1px;background:var(--sand);margin:20px 0;}
+
+.pill-check{display:flex;align-items:center;gap:9px;padding:11px 13px;border:1px solid var(--sand);border-radius:9px;cursor:pointer;margin-bottom:10px;background:#FCFBF8;}
+.pill-check input{width:16px;height:16px;accent-color:var(--alert);}
+.pill-check .t{font-size:13px;font-weight:600;}
+.pill-check .d{font-size:11.5px;color:var(--ink-soft);}
+
+.footer-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:22px;}
+
+.chip-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;}
+
+.priority-row{display:flex;align-items:center;gap:14px;padding:13px 6px;border-bottom:1px solid var(--sand-2);}
+.priority-row:last-child{border-bottom:none;}
+.priority-rank{font-family:var(--mono);font-size:12px;color:var(--ink-soft);width:22px;flex-shrink:0;}
+.priority-bar{flex:1;height:6px;border-radius:4px;background:var(--sand-2);overflow:hidden;}
+.priority-bar > div{height:100%;border-radius:4px;background:var(--alert);}
+.priority-name{width:190px;flex-shrink:0;font-weight:600;font-size:13px;}
+.priority-days{font-family:var(--mono);font-size:12px;width:120px;text-align:right;flex-shrink:0;color:var(--ink-soft);}
+
+.search-bar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.search-bar input,.search-bar select{width:auto;flex:1;min-width:160px;}
+
+.section-title{font-family:var(--disp);font-weight:600;font-size:14px;margin:22px 0 10px;}
+.helpbox{background:var(--sand-2);border-radius:10px;padding:12px 14px;font-size:12px;color:var(--ink-soft);line-height:1.55;margin-top:16px;}
+.helpbox b{color:var(--ink);}
+
+.toast{
+  position:fixed;bottom:22px;right:22px;background:var(--vein-deep);color:#fff;padding:12px 18px;
+  border-radius:10px;font-size:13px;font-weight:600;z-index:100;box-shadow:0 8px 24px rgba(11,61,58,.3);
+  display:flex;align-items:center;gap:8px;
+}
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg width="26" height="26" viewBox="0 0 26 26" fill="none"><circle cx="13" cy="13" r="12" stroke="#17B890" stroke-width="1.6"/><path d="M6 13c1.5-4 3-4 4.5 0s3 4 4.5 0 3-4 4.5 0" stroke="#17B890" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>
+        <div>
+          <div class="brand-title">Acesso Vascular</div>
+          <div class="brand-sub">Avaliação de Qa</div>
+        </div>
+      </div>
+      <svg class="wave" viewBox="0 0 220 34" preserveAspectRatio="none"><path id="headerWave" d="M0,17 L220,17"/></svg>
+    </div>
+    <nav class="nav" id="navList"></nav>
+    <div class="nav-foot">FAV &lt; 400 ml/min · EAV &lt; 600 ml/min<br>limiares de alarme de referência</div>
+  </aside>
+
+  <main class="main" id="mainContent"></main>
+</div>
+
+<div id="modalRoot"></div>
+<div id="toastRoot"></div>
+
+<script>
+/* =========================================================
+   CONFIG — edita livremente estes valores para a tua unidade
+   ========================================================= */
+const TURNOS = [
+  "Segunda / Quarta / Sexta — Manhã",
+  "Segunda / Quarta / Sexta — Tarde",
+  "Segunda / Quarta / Sexta — Noite",
+  "Terça / Quinta / Sábado — Manhã",
+  "Terça / Quinta / Sábado — Tarde",
+  "Terça / Quinta / Sábado — Noite"
+];
+const MEDICOS = [
+  "Dr. João Gil",
+  "Dr. Carlos Alves",
+  "Dr. Rui Durães",
+  "Dra. Carlota Nóbrega",
+  "Dra. Nicole Sousa",
+  "Dr. Nuno Rosa",
+  "Dr. Pedro Vieira",
+  "Dra. Marta Freitas"
+];
+
+/* =========================================================
+   STORAGE
+   ========================================================= */
+const DB = {
+  load(key, fallback){ try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch(e){ return fallback; } },
+  save(key, val){ localStorage.setItem(key, JSON.stringify(val)); }
+};
+let patients = DB.load('avv_patients', []);
+let assessments = DB.load('avv_assessments', []);
+function persist(){ DB.save('avv_patients', patients); DB.save('avv_assessments', assessments); }
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function fmtDate(iso){ if(!iso) return '—'; const d = new Date(iso+'T00:00:00'); return d.toLocaleDateString('pt-PT',{day:'2-digit',month:'short',year:'numeric'}); }
+
+/* =========================================================
+   CLINICAL LOGIC
+   ========================================================= */
+function patientAssessments(pid){
+  return assessments.filter(a=>a.pacienteId===pid).sort((a,b)=> a.data < b.data ? 1 : -1); // newest first
+}
+function qaThreshold(tipo){ return tipo==='FAV' ? 400 : 600; }
+
+function assessmentAlarms(a, tipo, prevQa){
+  const alarms = [];
+  if(a.sinaisInflamatorios) alarms.push('Sinais inflamatórios presentes');
+  if(a.aneurisma) alarms.push('Aneurisma presente');
+  if(a.sopro==='descontinuo') alarms.push('Sopro descontínuo');
+  if(a.fremito==='hipopulsatil') alarms.push('Frémito hipopulsátil');
+  const th = qaThreshold(tipo);
+  if(typeof a.qa==='number' && a.qa < th) alarms.push(`Qa abaixo do valor de referência (< ${th} ml/min)`);
+  if(typeof prevQa==='number' && typeof a.qa==='number' && prevQa>0){
+    const drop = (prevQa - a.qa)/prevQa;
+    if(drop >= 0.25) alarms.push(`Decréscimo de Qa ≥ 25% face à avaliação anterior`);
+  }
+  return alarms;
+}
+function latestStatus(pid, tipo){
+  const list = patientAssessments(pid); // newest first
+  if(list.length===0) return {state:'none', alarms:[], last:null};
+  const last = list[0];
+  const prev = list[1];
+  const alarms = assessmentAlarms(last, tipo, prev ? prev.qa : null);
+  return {state: alarms.length ? 'alarm' : 'ok', alarms, last};
+}
+// periodicity in months, based on latest Qa + tipo
+function intervalMonths(tipo, qa){
+  if(tipo==='EAV') return 1;
+  if(qa==null) return 1;
+  if(qa >= 1000) return 12;
+  if(qa >= 400) return 3;
+  return 1;
+}
+function addMonths(iso, months){
+  const d = new Date(iso+'T00:00:00');
+  d.setMonth(d.getMonth()+months);
+  return d.toISOString().slice(0,10);
+}
+function priorityInfo(p){
+  const list = patientAssessments(p.id);
+  if(list.length===0){
+    return {nextDue: null, overdueDays: 99999, neverAssessed:true, lastDate:null};
+  }
+  const last = list[0];
+  const months = intervalMonths(p.tipoAcesso, last.qa);
+  const nextDue = addMonths(last.data, months);
+  const overdueDays = Math.round((new Date(todayISO()) - new Date(nextDue)) / 86400000);
+  return {nextDue, overdueDays, neverAssessed:false, lastDate:last.data, months};
+}
+
+/* =========================================================
+   ROUTER
+   ========================================================= */
+const ROUTES = [
+  {id:'dashboard', label:'Dashboard', icon: iDashboard},
+  {id:'novo', label:'Registar Doente', icon: iPlus},
+  {id:'doentes', label:'Doentes', icon: iList},
+  {id:'prioridades', label:'Prioridades', icon: iAlert},
+  {id:'relatorios', label:'Relatórios', icon: iReport},
+];
+let currentRoute = 'dashboard';
+let currentPatientId = null;
+
+function navigate(route, pid){
+  currentRoute = route;
+  if(pid) currentPatientId = pid;
+  render();
+  window.scrollTo(0,0);
+}
+
+function renderNav(){
+  const nav = document.getElementById('navList');
+  nav.innerHTML = '';
+  ROUTES.forEach(r=>{
+    const btn = document.createElement('button');
+    btn.className = 'nav-item' + (currentRoute===r.id ? ' active':'');
+    btn.innerHTML = r.icon + `<span>${r.label}</span>`;
+    btn.onclick = ()=>navigate(r.id);
+    nav.appendChild(btn);
+  });
+}
+
+function render(){
+  renderNav();
+  const main = document.getElementById('mainContent');
+  if(currentRoute==='dashboard') main.innerHTML = pageDashboard();
+  else if(currentRoute==='novo') main.innerHTML = pageNovo();
+  else if(currentRoute==='doentes') main.innerHTML = pageDoentes();
+  else if(currentRoute==='prioridades') main.innerHTML = pagePrioridades();
+  else if(currentRoute==='relatorios') main.innerHTML = pageRelatorios();
+  else if(currentRoute==='detalhe') main.innerHTML = pageDetalhe(currentPatientId);
+  afterRender();
+}
+
+/* =========================================================
+   ICONS (inline svg, stroke = currentColor)
+   ========================================================= */
+function icon(paths, size=17){ return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`; }
+function iDashboard(){ return icon(`<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>`); }
+function iPlus(){ return icon(`<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>`); }
+function iList(){ return icon(`<circle cx="5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="5" cy="18" r="1.3" fill="currentColor" stroke="none"/><path d="M9 6h11M9 12h11M9 18h11"/>`); }
+function iAlert(){ return icon(`<path d="M12 3l9 16H3L12 3z"/><path d="M12 10v4M12 17.5v.1"/>`); }
+function iReport(){ return icon(`<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 13h6M9 17h6M9 9h2"/>`); }
+function iCheck(){ return icon(`<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>`,15); }
+function iWarn(){ return icon(`<path d="M12 3l9 16H3L12 3z"/><path d="M12 10v4M12 17.5v.1"/>`,15); }
+function iArrowRight(){ return icon(`<path d="M5 12h14M13 6l6 6-6 6"/>`,15); }
+function iTrash(){ return icon(`<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>`,15); }
+function iX(){ return icon(`<path d="M6 6l12 12M18 6L6 18"/>`,18); }
+function iEmpty(){ return icon(`<circle cx="12" cy="12" r="9"/><path d="M8 15c1.2-1.3 2.7-2 4-2s2.8.7 4 2"/><circle cx="9" cy="10" r=".7" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r=".7" fill="currentColor" stroke="none"/>`,40); }
+
+function miniWave(type){
+  if(type==='continuo'){
+    return `<svg class="mini-wave" width="34" height="14" viewBox="0 0 34 14"><path d="M0,7 C2,2 4,12 6,7 C8,2 10,12 12,7 C14,2 16,12 18,7 C20,2 22,12 24,7 C26,2 28,12 30,7 C32,2 34,7 34,7" fill="none" stroke="#17B890" stroke-width="1.6"/></svg>`;
+  }
+  return `<svg class="mini-wave" width="34" height="14" viewBox="0 0 34 14"><path d="M0,7 C2,2 4,12 6,7 L11,7 M14,7 C16,2 18,12 20,7 L25,7 M28,2 C29,7 30,7 30,7" fill="none" stroke="#C1443C" stroke-width="1.6"/></svg>`;
+}
+
+/* =========================================================
+   SHARED bits
+   ========================================================= */
+function statusBadge(state){
+  if(state==='alarm') return `<span class="badge alert">${iWarn()} Alarme</span>`;
+  if(state==='ok') return `<span class="badge ok">${iCheck()} Normal</span>`;
+  return `<span class="badge neutral">Sem avaliação</span>`;
+}
+function tipoTag(tipo){ return tipo==='FAV' ? `<span class="tag-fav">FAV</span>` : `<span class="tag-eav">EAV</span>`; }
+
+function toast(msg){
+  const root = document.getElementById('toastRoot');
+  const el = document.createElement('div');
+  el.className='toast';
+  el.innerHTML = iCheck() + `<span>${msg}</span>`;
+  root.appendChild(el);
+  setTimeout(()=>{ el.remove(); }, 2600);
+}
+
+/* =========================================================
+   DASHBOARD
+   ========================================================= */
+function pageDashboard(){
+  const total = patients.length;
+  let ok=0, alarm=0, none=0;
+  patients.forEach(p=>{
+    const s = latestStatus(p.id, p.tipoAcesso).state;
+    if(s==='ok') ok++; else if(s==='alarm') alarm++; else none++;
+  });
+  const favCount = patients.filter(p=>p.tipoAcesso==='FAV').length;
+  const eavCount = patients.filter(p=>p.tipoAcesso==='EAV').length;
+
+  const overdue = patients.map(p=>({p, info:priorityInfo(p)}))
+    .filter(x=>x.info.overdueDays>0 || x.info.neverAssessed)
+    .sort((a,b)=>b.info.overdueDays - a.info.overdueDays)
+    .slice(0,5);
+
+  return `
+  <div class="pagehead">
+    <div class="eyebrow">Visão Geral</div>
+    <h1>Dashboard de Acesso Vascular</h1>
+    <p>Estado atual da coorte de doentes com FAV/EAV, com base na última avaliação registada de sinais inflamatórios, aneurisma, sopro, frémito e Qa.</p>
+  </div>
+
+  <div class="grid grid-4" style="margin-bottom:18px;">
+    <div class="card stat-card">
+      <div class="stat-label">Total de doentes</div>
+      <div class="stat-value">${total}</div>
+      <div class="stat-sub">${favCount} FAV · ${eavCount} EAV</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">Sem alarme</div>
+      <div class="stat-value">${ok}</div>
+      <div class="stat-sub">${total? Math.round(ok/total*100):0}% da coorte</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">Com alarme</div>
+      <div class="stat-value alert">${alarm}</div>
+      <div class="stat-sub">Critérios de exame físico ou Qa</div>
+    </div>
+    <div class="card stat-card">
+      <div class="stat-label">Nunca avaliados</div>
+      <div class="stat-value" style="color:var(--amber)">${none}</div>
+      <div class="stat-sub">Sem registo de Qa</div>
+    </div>
+  </div>
+
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>Estado por tipo de acesso <span class="muted">— doentes ativos</span></h3>
+      <canvas id="chartEstado" height="190"></canvas>
+    </div>
+    <div class="card">
+      <h3>Doentes mais atrasados <span class="muted">— avaliação em falta</span></h3>
+      ${overdue.length ? overdue.map(x=>`
+        <div class="priority-row" style="cursor:pointer" onclick="navigate('detalhe','${x.p.id}')">
+          <div class="priority-name">${escapeHtml(x.p.nome)}</div>
+          <div class="priority-bar"><div style="width:${Math.min(100, x.info.neverAssessed?100:x.info.overdueDays*4)}%"></div></div>
+          <div class="priority-days">${x.info.neverAssessed ? 'nunca avaliado' : x.info.overdueDays+' dias'}</div>
+        </div>
+      `).join('') : `<div class="stat-sub">Sem doentes em atraso — bom trabalho.</div>`}
+      <div style="margin-top:14px;"><button class="btn secondary small" onclick="navigate('prioridades')">Ver lista completa ${iArrowRight()}</button></div>
+    </div>
+  </div>
+
+  <div class="grid grid-2" style="margin-top:16px;">
+    <div class="card">
+      <h3>Distribuição por turno</h3>
+      <canvas id="chartTurno" height="190"></canvas>
+    </div>
+    <div class="card">
+      <h3>Critérios de alarme mais frequentes</h3>
+      <canvas id="chartCriterios" height="190"></canvas>
+    </div>
+  </div>
+  `;
+}
+
+function drawDashboardCharts(){
+  if(!document.getElementById('chartEstado')) return;
+
+  // Estado por tipo
+  const favOk = patients.filter(p=>p.tipoAcesso==='FAV' && latestStatus(p.id,p.tipoAcesso).state==='ok').length;
+  const favAl = patients.filter(p=>p.tipoAcesso==='FAV' && latestStatus(p.id,p.tipoAcesso).state==='alarm').length;
+  const eavOk = patients.filter(p=>p.tipoAcesso==='EAV' && latestStatus(p.id,p.tipoAcesso).state==='ok').length;
+  const eavAl = patients.filter(p=>p.tipoAcesso==='EAV' && latestStatus(p.id,p.tipoAcesso).state==='alarm').length;
+  new Chart(document.getElementById('chartEstado'), {
+    type:'bar',
+    data:{ labels:['FAV','EAV'],
+      datasets:[
+        {label:'Normal', data:[favOk,eavOk], backgroundColor:'#17B890', borderRadius:6, maxBarThickness:46},
+        {label:'Alarme', data:[favAl,eavAl], backgroundColor:'#C1443C', borderRadius:6, maxBarThickness:46},
+      ]},
+    options:{responsive:true, plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}}, scales:{x:{stacked:true,grid:{display:false}}, y:{stacked:true,beginAtZero:true,ticks:{precision:0}}}}
+  });
+
+  // Turno
+  const turnoCounts = TURNOS.map(t=>patients.filter(p=>p.turno===t).length);
+  new Chart(document.getElementById('chartTurno'), {
+    type:'bar',
+    data:{ labels: TURNOS.map(t=>t.replace(' — ',' ')), datasets:[{data:turnoCounts, backgroundColor:'#0F4F49', borderRadius:6, maxBarThickness:28}]},
+    options:{indexAxis:'y', responsive:true, plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:'#EFEBDF'}}, y:{grid:{display:false},ticks:{font:{size:10.5}}}}}
+  });
+
+  // Criterios
+  const crit = {'Sinais inflamatórios':0,'Aneurisma':0,'Sopro descontínuo':0,'Frémito hipopulsátil':0,'Qa abaixo do limiar':0,'Decréscimo Qa ≥25%':0};
+  patients.forEach(p=>{
+    const {alarms} = latestStatus(p.id,p.tipoAcesso);
+    alarms.forEach(a=>{
+      if(a.includes('inflamat')) crit['Sinais inflamatórios']++;
+      else if(a.includes('Aneurisma')) crit['Aneurisma']++;
+      else if(a.includes('descontínuo')) crit['Sopro descontínuo']++;
+      else if(a.includes('hipopulsátil')) crit['Frémito hipopulsátil']++;
+      else if(a.includes('referência')) crit['Qa abaixo do limiar']++;
+      else if(a.includes('Decréscimo')) crit['Decréscimo Qa ≥25%']++;
+    });
+  });
+  new Chart(document.getElementById('chartCriterios'), {
+    type:'bar',
+    data:{labels:Object.keys(crit), datasets:[{data:Object.values(crit), backgroundColor:'#B8862B', borderRadius:6, maxBarThickness:24}]},
+    options:{indexAxis:'y', responsive:true, plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true,ticks:{precision:0},grid:{color:'#EFEBDF'}}, y:{grid:{display:false},ticks:{font:{size:10.5}}}}}
+  });
+}
+
+/* =========================================================
+   REGISTAR DOENTE
+   ========================================================= */
+function pageNovo(){
+  return `
+  <div class="pagehead">
+    <div class="eyebrow">Novo Registo</div>
+    <h1>Registar Doente</h1>
+    <p>Cria a ficha do doente. Depois de guardar, podes adicionar avaliações de Qa a partir da ficha do doente.</p>
+  </div>
+  <div class="card" style="max-width:640px;">
+    <div class="field">
+      <label>Nome completo</label>
+      <input type="text" id="f_nome" placeholder="Nome do doente">
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Tipo de acesso</label>
+        <div class="seg" id="f_tipo">
+          <button type="button" class="on" data-v="FAV" onclick="segPick('f_tipo',this)">FAV</button>
+          <button type="button" data-v="EAV" onclick="segPick('f_tipo',this)">EAV</button>
+        </div>
+      </div>
+      <div class="field">
+        <label>Localização do acesso <span style="font-weight:400;color:var(--ink-soft)">(opcional)</span></label>
+        <input type="text" id="f_local" placeholder="ex: Radiocefálica, MSE">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field">
+        <label>Turno</label>
+        <select id="f_turno">${TURNOS.map(t=>`<option>${t}</option>`).join('')}</select>
+      </div>
+      <div class="field">
+        <label>Médico responsável</label>
+        <select id="f_medico">${MEDICOS.map(m=>`<option>${m}</option>`).join('')}</select>
+      </div>
+    </div>
+    <div class="footer-actions">
+      <button class="btn secondary" onclick="navigate('doentes')">Cancelar</button>
+      <button class="btn" onclick="saveNewPatient()">Guardar doente</button>
+    </div>
+  </div>`;
+}
+function segPick(groupId, btn){
+  const group = document.getElementById(groupId);
+  [...group.children].forEach(c=>c.classList.remove('on'));
+  btn.classList.add('on');
+}
+function saveNewPatient(){
+  const nome = document.getElementById('f_nome').value.trim();
+  if(!nome){ toast('Indica o nome do doente'); return; }
+  const tipo = document.querySelector('#f_tipo .on').dataset.v;
+  const local = document.getElementById('f_local').value.trim();
+  const turno = document.getElementById('f_turno').value;
+  const medico = document.getElementById('f_medico').value;
+  const p = {id:uid(), nome, tipoAcesso:tipo, local, turno, medico, criadoEm: todayISO()};
+  patients.push(p);
+  persist();
+  toast('Doente registado');
+  navigate('detalhe', p.id);
+}
+
+/* =========================================================
+   LISTAGEM DOENTES
+   ========================================================= */
+let filterState = {q:'', tipo:'todos', estado:'todos'};
+function pageDoentes(){
+  return `
+  <div class="pagehead">
+    <div class="eyebrow">Doentes</div>
+    <h1>Listagem de Doentes</h1>
+    <p>Consulta o estado atual de cada acesso vascular e abre a ficha para ver o histórico completo ou adicionar uma nova avaliação.</p>
+  </div>
+  <div class="search-bar">
+    <input type="text" id="searchQ" placeholder="Pesquisar por nome..." value="${escapeHtml(filterState.q)}" oninput="filterState.q=this.value; rerenderDoentesTable();">
+    <select id="filtTipo" onchange="filterState.tipo=this.value; rerenderDoentesTable();">
+      <option value="todos" ${filterState.tipo==='todos'?'selected':''}>Todos os tipos</option>
+      <option value="FAV" ${filterState.tipo==='FAV'?'selected':''}>FAV</option>
+      <option value="EAV" ${filterState.tipo==='EAV'?'selected':''}>EAV</option>
+    </select>
+    <select id="filtEstado" onchange="filterState.estado=this.value; rerenderDoentesTable();">
+      <option value="todos" ${filterState.estado==='todos'?'selected':''}>Todos os estados</option>
+      <option value="ok" ${filterState.estado==='ok'?'selected':''}>Normal</option>
+      <option value="alarm" ${filterState.estado==='alarm'?'selected':''}>Alarme</option>
+      <option value="none" ${filterState.estado==='none'?'selected':''}>Sem avaliação</option>
+    </select>
+    <button class="btn" onclick="navigate('novo')">${iPlus()} Novo doente</button>
+  </div>
+  <div class="card" style="padding:8px 10px;" id="doentesTableWrap"></div>
+  `;
+}
+function filteredPatients(){
+  return patients.filter(p=>{
+    if(filterState.q && !p.nome.toLowerCase().includes(filterState.q.toLowerCase())) return false;
+    if(filterState.tipo!=='todos' && p.tipoAcesso!==filterState.tipo) return false;
+    if(filterState.estado!=='todos' && latestStatus(p.id,p.tipoAcesso).state!==filterState.estado) return false;
+    return true;
+  }).sort((a,b)=>a.nome.localeCompare(b.nome));
+}
+function rerenderDoentesTable(){
+  const wrap = document.getElementById('doentesTableWrap');
+  if(!wrap) return;
+  const list = filteredPatients();
+  if(list.length===0){
+    wrap.innerHTML = `<div class="empty">${iEmpty()}<p>Sem doentes para os filtros escolhidos.</p><button class="btn" onclick="navigate('novo')">${iPlus()} Registar doente</button></div>`;
+    return;
+  }
+  wrap.innerHTML = `<table>
+    <thead><tr><th>Doente</th><th>Tipo</th><th>Turno</th><th>Última avaliação</th><th>Qa</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      ${list.map(p=>{
+        const st = latestStatus(p.id, p.tipoAcesso);
+        return `<tr class="rowclick" onclick="navigate('detalhe','${p.id}')">
+          <td><strong>${escapeHtml(p.nome)}</strong>${p.local? `<div style="font-size:11.5px;color:var(--ink-soft);">${escapeHtml(p.local)}</div>`:''}</td>
+          <td>${tipoTag(p.tipoAcesso)}</td>
+          <td style="font-size:12px;color:var(--ink-soft)">${p.turno.split(' — ')[1]||p.turno}</td>
+          <td>${st.last ? fmtDate(st.last.data) : '—'}</td>
+          <td class="qa-figure">${st.last && typeof st.last.qa==='number' ? st.last.qa+' ml/min' : '—'}</td>
+          <td>${statusBadge(st.state)}</td>
+          <td>${iArrowRight()}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+}
+
+/* =========================================================
+   FICHA DE DOENTE / DETALHE
+   ========================================================= */
+function pageDetalhe(pid){
+  const p = patients.find(x=>x.id===pid);
+  if(!p) return `<div class="empty">${iEmpty()}<p>Doente não encontrado.</p><button class="btn" onclick="navigate('doentes')">Voltar à listagem</button></div>`;
+  const list = patientAssessments(p.id); // newest first
+  const st = latestStatus(p.id, p.tipoAcesso);
+  const pr = priorityInfo(p);
+
+  return `
+  <div style="margin-bottom:16px;">
+    <button class="btn secondary small" onclick="navigate('doentes')">← Doentes</button>
+  </div>
+  <div class="card">
+    <div class="detail-head">
+      <div>
+        <div class="detail-name">${escapeHtml(p.nome)}</div>
+        <div class="detail-meta">
+          <span>${tipoTag(p.tipoAcesso)}</span>
+          <span>${escapeHtml(p.local || 'localização não indicada')}</span>
+          <span>${escapeHtml(p.turno)}</span>
+          <span>${escapeHtml(p.medico)}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        ${statusBadge(st.state)}
+        <button class="btn secondary small" onclick="deletePatient('${p.id}')">${iTrash()} Remover</button>
+      </div>
+    </div>
+
+    ${st.alarms.length? `
+      <div class="divider"></div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${st.alarms.map(a=>`<div class="badge alert" style="width:fit-content;">${iWarn()} ${a}</div>`).join('')}
+      </div>
+    `:''}
+
+    <div class="divider"></div>
+    <div class="grid grid-3">
+      <div>
+        <div class="stat-label">Próxima avaliação prevista</div>
+        <div style="font-family:var(--mono);font-weight:600;font-size:15px;margin-top:6px;">
+          ${pr.neverAssessed ? 'por agendar' : fmtDate(pr.nextDue)}
+        </div>
+        <div class="stat-sub">${pr.neverAssessed ? 'ainda sem avaliação' : (pr.overdueDays>0 ? `${pr.overdueDays} dias em atraso` : `dentro do prazo · periodicidade ${pr.months} ${pr.months===1?'mês':'meses'}`)}</div>
+      </div>
+      <div>
+        <div class="stat-label">Última medição de Qa</div>
+        <div class="qa-figure" style="font-size:15px;margin-top:6px;">${st.last && typeof st.last.qa==='number' ? st.last.qa+' ml/min' : '—'}</div>
+        <div class="stat-sub">Limiar de referência: ${qaThreshold(p.tipoAcesso)} ml/min</div>
+      </div>
+      <div>
+        <div class="stat-label">Avaliações registadas</div>
+        <div style="font-family:var(--mono);font-weight:600;font-size:15px;margin-top:6px;">${list.length}</div>
+        <div class="stat-sub">${list.length? 'primeira em '+fmtDate(list[list.length-1].data) : 'sem histórico'}</div>
+      </div>
+    </div>
+  </div>
+
+  ${list.length>1 ? `<div class="card" style="margin-top:16px;"><h3>Evolução do Qa <span class="muted">— ml/min</span></h3><canvas id="chartQaTrend" height="90"></canvas></div>` : ''}
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin:22px 0 10px;">
+    <div class="section-title" style="margin:0;">Histórico de avaliações</div>
+    <button class="btn" onclick="openAssessmentModal('${p.id}')">${iPlus()} Nova avaliação</button>
+  </div>
+
+  <div class="card" style="padding:8px 10px;">
+    ${list.length===0 ? `<div class="empty">${iEmpty()}<p>Ainda não há avaliações registadas para este doente.</p><button class="btn" onclick="openAssessmentModal('${p.id}')">${iPlus()} Registar primeira avaliação</button></div>` : `
+    <table>
+      <thead><tr><th>Data</th><th>Sopro</th><th>Frémito</th><th>Inflamação</th><th>Aneurisma</th><th>Qa</th><th>Estado</th></tr></thead>
+      <tbody>
+        ${list.map((a,i)=>{
+          const prevQa = list[i+1] ? list[i+1].qa : null;
+          const alarms = assessmentAlarms(a, p.tipoAcesso, prevQa);
+          return `<tr>
+            <td>${fmtDate(a.data)}</td>
+            <td>${miniWave(a.sopro)} <span style="font-size:12px;color:var(--ink-soft)">${a.sopro==='continuo'?'Contínuo':'Descontínuo'}</span></td>
+            <td style="font-size:12.5px;">${fremitoLabel(a.fremito)}</td>
+            <td>${a.sinaisInflamatorios? `<span class="badge alert">Sim</span>` : `<span class="badge ok">Não</span>`}</td>
+            <td>${a.aneurisma? `<span class="badge alert">Sim</span>` : `<span class="badge ok">Não</span>`}</td>
+            <td class="qa-figure">${typeof a.qa==='number'? a.qa+' ml/min':'—'}</td>
+            <td>${alarms.length? statusBadge('alarm') : statusBadge('ok')}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`}
+  </div>
+  `;
+}
+function fremitoLabel(v){
+  if(v==='hipopulsatil') return '<span style="color:var(--alert);font-weight:600;">Hipopulsátil</span>';
+  if(v==='hiperpulsatil') return '<span style="color:var(--amber);font-weight:600;">Hiperpulsátil</span>';
+  return '<span style="color:var(--vein-deep-2);font-weight:600;">Normopulsátil</span>';
+}
+function deletePatient(pid){
+  if(!confirm('Remover este doente e todo o seu histórico de avaliações? Esta ação não pode ser desfeita.')) return;
+  patients = patients.filter(p=>p.id!==pid);
+  assessments = assessments.filter(a=>a.pacienteId!==pid);
+  persist();
+  toast('Doente removido');
+  navigate('doentes');
+}
+function drawTrendChart(pid){
+  const el = document.getElementById('chartQaTrend');
+  if(!el) return;
+  const p = patients.find(x=>x.id===pid);
+  const list = patientAssessments(pid).slice().reverse(); // oldest first
+  new Chart(el, {
+    type:'line',
+    data:{
+      labels:list.map(a=>fmtDate(a.data)),
+      datasets:[
+        {label:'Qa (ml/min)', data:list.map(a=>a.qa), borderColor:'#0B3D3A', backgroundColor:'rgba(23,184,144,.12)', fill:true, tension:.3, pointBackgroundColor:'#0B3D3A'},
+        {label:'Limiar de referência', data:list.map(()=>qaThreshold(p.tipoAcesso)), borderColor:'#C1443C', borderDash:[5,4], pointRadius:0}
+      ]
+    },
+    options:{responsive:true, plugins:{legend:{position:'bottom', labels:{boxWidth:10,font:{size:11}}}}, scales:{y:{beginAtZero:true}}}
+  });
+}
+
+/* =========================================================
+   MODAL — Nova avaliação
+   ========================================================= */
+function openAssessmentModal(pid){
+  const p = patients.find(x=>x.id===pid);
+  const root = document.getElementById('modalRoot');
+  root.innerHTML = `
+  <div class="overlay" onclick="if(event.target===this) closeModal()">
+    <div class="modal">
+      <div class="modal-head">
+        <h2>Nova avaliação — ${escapeHtml(p.nome)}</h2>
+        <button class="modal-close" onclick="closeModal()">${iX()}</button>
+      </div>
+
+      <div class="field">
+        <label>Data da avaliação</label>
+        <input type="date" id="a_data" value="${todayISO()}" max="${todayISO()}">
+      </div>
+
+      <div class="section-title" style="margin-top:4px;">Exame físico</div>
+
+      <label class="pill-check">
+        <input type="checkbox" id="a_inflam">
+        <div><div class="t">Sinais inflamatórios / infeção</div><div class="d">Rubor, calor, dor ou edema local</div></div>
+      </label>
+      <label class="pill-check">
+        <input type="checkbox" id="a_aneurisma">
+        <div><div class="t">Aneurisma / pseudoaneurisma</div><div class="d">Dilatação focal visível ou palpável</div></div>
+      </label>
+
+      <div class="field-row" style="margin-top:4px;">
+        <div class="field">
+          <label>Sopro</label>
+          <div class="seg" id="a_sopro">
+            <button type="button" class="on" data-v="continuo" onclick="segPick('a_sopro',this)">Contínuo</button>
+            <button type="button" data-v="descontinuo" onclick="segPick('a_sopro',this)">Descontínuo</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Frémito</label>
+          <div class="seg" id="a_fremito">
+            <button type="button" data-v="hipopulsatil" onclick="segPick('a_fremito',this)">Hipo</button>
+            <button type="button" class="on" data-v="normopulsatil" onclick="segPick('a_fremito',this)">Normo</button>
+            <button type="button" data-v="hiperpulsatil" onclick="segPick('a_fremito',this)">Hiper</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title">Débito do acesso</div>
+      <div class="field">
+        <label>Qa medido (técnica de inversão de fluxo, Qb 300 ml/min) — ml/min</label>
+        <input type="number" id="a_qa" min="0" step="10" placeholder="ex: 850">
+      </div>
+
+      <div class="field">
+        <label>Notas <span style="font-weight:400;color:var(--ink-soft)">(opcional)</span></label>
+        <textarea id="a_notas" rows="2" placeholder="Observações clínicas adicionais"></textarea>
+      </div>
+
+      <div class="helpbox">
+        <b>Limiares de alarme:</b> Qa &lt; 400 ml/min (FAV) ou &lt; 600 ml/min (EAV); decréscimo ≥ 25% face à avaliação anterior; sinais inflamatórios, aneurisma, sopro descontínuo ou frémito hipopulsátil. Em caso de dúvida, repetir na próxima sessão para confirmar.
+      </div>
+
+      <div class="footer-actions">
+        <button class="btn secondary" onclick="closeModal()">Cancelar</button>
+        <button class="btn" onclick="saveAssessment('${pid}')">Guardar avaliação</button>
+      </div>
+    </div>
+  </div>`;
+}
+function closeModal(){ document.getElementById('modalRoot').innerHTML=''; }
+function saveAssessment(pid){
+  const data = document.getElementById('a_data').value;
+  const qaRaw = document.getElementById('a_qa').value;
+  if(!data){ toast('Indica a data da avaliação'); return; }
+  if(qaRaw===''){ toast('Indica o valor de Qa medido'); return; }
+  const a = {
+    id: uid(),
+    pacienteId: pid,
+    data,
+    sinaisInflamatorios: document.getElementById('a_inflam').checked,
+    aneurisma: document.getElementById('a_aneurisma').checked,
+    sopro: document.querySelector('#a_sopro .on').dataset.v,
+    fremito: document.querySelector('#a_fremito .on').dataset.v,
+    qa: Number(qaRaw),
+    notas: document.getElementById('a_notas').value.trim()
+  };
+  assessments.push(a);
+  persist();
+  closeModal();
+  toast('Avaliação guardada');
+  render();
+}
+
+/* =========================================================
+   PRIORIDADES
+   ========================================================= */
+function pagePrioridades(){
+  const rows = patients.map(p=>({p, info:priorityInfo(p)}))
+    .sort((a,b)=> b.info.overdueDays - a.info.overdueDays);
+  const maxDays = Math.max(1, ...rows.filter(r=>!r.info.neverAssessed).map(r=>Math.max(1,r.info.overdueDays)));
+
+  return `
+  <div class="pagehead">
+    <div class="eyebrow">Planeamento</div>
+    <h1>Prioridades de Avaliação</h1>
+    <p>Ordenado pelo maior atraso face à periodicidade recomendada: FAV com Qa ≥ 1000 ml/min → anual; Qa 400–999 → trimestral; Qa &lt; 400 ml/min → mensal. EAV → sempre mensal.</p>
+  </div>
+  <div class="card">
+    ${rows.length===0 ? `<div class="empty">${iEmpty()}<p>Ainda não há doentes registados.</p></div>` :
+      rows.map((r,i)=>`
+      <div class="priority-row" style="cursor:pointer" onclick="navigate('detalhe','${r.p.id}')">
+        <div class="priority-rank">${i+1}</div>
+        <div class="priority-name">${escapeHtml(r.p.nome)} ${tipoTag(r.p.tipoAcesso)}</div>
+        <div class="priority-bar"><div style="width:${r.info.neverAssessed?100:Math.max(4,Math.min(100, r.info.overdueDays/maxDays*100))}%; background:${r.info.overdueDays>0||r.info.neverAssessed?'#C1443C':'#17B890'}"></div></div>
+        <div class="priority-days">${r.info.neverAssessed ? 'nunca avaliado' : (r.info.overdueDays>0 ? r.info.overdueDays+' dias em atraso' : Math.abs(r.info.overdueDays)+' dias até ao prazo')}</div>
+      </div>`).join('')}
+  </div>`;
+}
+
+/* =========================================================
+   RELATÓRIOS
+   ========================================================= */
+function pageRelatorios(){
+  return `
+  <div class="pagehead">
+    <div class="eyebrow">Exportação</div>
+    <h1>Relatórios</h1>
+    <p>Exporta o registo completo de doentes e avaliações para Excel, para arquivo ou partilha com a equipa clínica.</p>
+  </div>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>Exportar avaliações</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin-top:-6px;">Uma linha por avaliação, com dados do doente, exame físico, Qa e estado calculado.</p>
+      <button class="btn" onclick="exportAssessments()">${iReport()} Exportar avaliações (.xlsx)</button>
+    </div>
+    <div class="card">
+      <h3>Exportar doentes</h3>
+      <p style="font-size:13px;color:var(--ink-soft);margin-top:-6px;">Uma linha por doente, com o estado mais recente e a próxima avaliação prevista.</p>
+      <button class="btn" onclick="exportPatients()">${iReport()} Exportar doentes (.xlsx)</button>
+    </div>
+  </div>`;
+}
+function exportAssessments(){
+  if(assessments.length===0){ toast('Ainda não há avaliações para exportar'); return; }
+  const rows = assessments.slice().sort((a,b)=>a.data<b.data?1:-1).map(a=>{
+    const p = patients.find(x=>x.id===a.pacienteId) || {};
+    const sameP = patientAssessments(a.pacienteId).sort((x,y)=>x.data<y.data?-1:1);
+    const idx = sameP.findIndex(x=>x.id===a.id);
+    const prevQa = idx>0 ? sameP[idx-1].qa : null;
+    const alarms = assessmentAlarms(a, p.tipoAcesso, prevQa);
+    return {
+      'Doente': p.nome||'',
+      'Tipo de Acesso': p.tipoAcesso||'',
+      'Localização': p.local||'',
+      'Turno': p.turno||'',
+      'Médico': p.medico||'',
+      'Data': a.data,
+      'Sinais Inflamatórios': a.sinaisInflamatorios?'Sim':'Não',
+      'Aneurisma': a.aneurisma?'Sim':'Não',
+      'Sopro': a.sopro==='continuo'?'Contínuo':'Descontínuo',
+      'Frémito': a.fremito==='hipopulsatil'?'Hipopulsátil':(a.fremito==='hiperpulsatil'?'Hiperpulsátil':'Normopulsátil'),
+      'Qa (ml/min)': a.qa,
+      'Estado': alarms.length?'Alarme':'Normal',
+      'Critérios de Alarme': alarms.join('; '),
+      'Notas': a.notas||''
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Avaliações');
+  XLSX.writeFile(wb, `avaliacoes_acesso_vascular_${todayISO()}.xlsx`);
+  toast('Ficheiro exportado');
+}
+function exportPatients(){
+  if(patients.length===0){ toast('Ainda não há doentes para exportar'); return; }
+  const rows = patients.map(p=>{
+    const st = latestStatus(p.id, p.tipoAcesso);
+    const pr = priorityInfo(p);
+    return {
+      'Doente': p.nome,
+      'Tipo de Acesso': p.tipoAcesso,
+      'Localização': p.local||'',
+      'Turno': p.turno,
+      'Médico': p.medico,
+      'Última Avaliação': st.last? st.last.data : '',
+      'Qa Mais Recente (ml/min)': st.last? st.last.qa : '',
+      'Estado': st.state==='alarm'?'Alarme':(st.state==='ok'?'Normal':'Sem avaliação'),
+      'Próxima Avaliação Prevista': pr.neverAssessed? '' : pr.nextDue,
+      'Dias em Atraso': pr.neverAssessed? '' : pr.overdueDays
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Doentes');
+  XLSX.writeFile(wb, `doentes_acesso_vascular_${todayISO()}.xlsx`);
+  toast('Ficheiro exportado');
+}
+
+/* =========================================================
+   UTIL
+   ========================================================= */
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+function afterRender(){
+  if(currentRoute==='doentes') rerenderDoentesTable();
+  if(currentRoute==='dashboard') drawDashboardCharts();
+  if(currentRoute==='detalhe') drawTrendChart(currentPatientId);
+  animateHeaderWave();
+}
+function animateHeaderWave(){
+  const path = document.getElementById('headerWave');
+  if(!path || path.dataset.bound) return;
+  path.dataset.bound = '1';
+  let t=0;
+  function frame(){
+    t += 0.045;
+    let d = 'M0,17 ';
+    for(let x=0; x<=220; x+=4){
+      const y = 17 + Math.sin(x*0.09 + t)*5*Math.exp(-Math.pow((x%70-35)/22,2));
+      d += `L${x},${y.toFixed(1)} `;
+    }
+    path.setAttribute('d', d);
+    requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+/* seed a friendly empty state on very first run: nothing pre-seeded, clean start */
+render();
+</script>
+</body>
+</html>
