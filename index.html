@@ -86,6 +86,9 @@
   .flex-between{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
   .kv{font-size:14px;line-height:1.9;}
   .kv b{color:var(--muted);font-weight:600;display:inline-block;min-width:150px;}
+  .acesso-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;}
+  .acesso-adder{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:end;margin-top:8px;}
+  @media(max-width:700px){.acesso-adder{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -109,11 +112,11 @@
     <div class="grid cols-4" id="dashStats"></div>
     <div class="grid cols-2">
       <div class="card">
-        <h3>Doentes por tipo de acesso</h3>
+        <h3>Acessos por tipo (FAV/EAV/CVC)</h3>
         <canvas id="chartTipoAcesso"></canvas>
       </div>
       <div class="card">
-        <h3>Estado de alarme (última avaliação)</h3>
+        <h3>Estado de alarme (última avaliação de cada acesso)</h3>
         <canvas id="chartAlarme"></canvas>
       </div>
     </div>
@@ -141,24 +144,32 @@
             <input type="text" id="doenteNome" required>
           </div>
           <div class="field">
-            <label>Tipo de acesso</label>
-            <select id="doenteTipoAcesso" required>
-              <option value="FAV">FAV — Fístula Arteriovenosa</option>
-              <option value="EAV">EAV — Enxerto/Prótese Arteriovenosa</option>
-              <option value="CVC">CVC — Cateter Venoso Central</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Localização do acesso</label>
-            <input type="text" id="doenteLocalizacao" placeholder="ex: Antebraço esquerdo" required>
-          </div>
-          <div class="field">
             <label>Turno</label>
             <select id="doenteTurno" required></select>
           </div>
           <div class="field">
             <label>Médico responsável</label>
             <select id="doenteMedico" required></select>
+          </div>
+        </div>
+        <div class="field">
+          <label>Acessos vasculares</label>
+          <p class="subtitle" style="margin:0 0 8px;">Um doente pode ter mais do que um acesso (ex: FAV + CVC). Adicione todos os que se aplicam.</p>
+          <div id="acessosList"></div>
+          <div class="acesso-adder">
+            <div class="field" style="margin-bottom:0;">
+              <label>Tipo</label>
+              <select id="novoAcessoTipo">
+                <option value="FAV">FAV</option>
+                <option value="EAV">EAV</option>
+                <option value="CVC">CVC</option>
+              </select>
+            </div>
+            <div class="field" style="margin-bottom:0;">
+              <label>Localização</label>
+              <input type="text" id="novoAcessoLocalizacao" placeholder="ex: Antebraço esquerdo">
+            </div>
+            <button type="button" class="btn secondary" id="addAcessoBtn">+ Adicionar acesso</button>
           </div>
         </div>
         <button type="submit" class="btn" id="doenteSubmitBtn">Registar Doente</button>
@@ -186,10 +197,14 @@
       <h2 id="avalFormTitle">Nova Avaliação</h2>
       <form id="formAvaliacao">
         <input type="hidden" id="avalId">
-        <div class="grid cols-2">
+        <div class="grid cols-3">
           <div class="field">
             <label>Doente</label>
             <select id="avalDoente" required></select>
+          </div>
+          <div class="field">
+            <label>Acesso vascular</label>
+            <select id="avalAcesso" required></select>
           </div>
           <div class="field">
             <label>Data da avaliação</label>
@@ -241,7 +256,7 @@
   <section id="view-prioridades" class="view">
     <div class="card">
       <h2>Prioridades de avaliação</h2>
-      <p class="subtitle">Doentes com FAV ou EAV, ordenados por atraso face à periodicidade do protocolo (FAV ≥1000 ml/min → anual; 400–999 ml/min → trimestral; &lt;400 ml/min → mensal · EAV → sempre mensal). Doentes CVC não têm periodicidade Qa definida no protocolo e não constam desta lista.</p>
+      <p class="subtitle">Acessos vasculares do tipo FAV ou EAV, ordenados por atraso face à periodicidade do protocolo (FAV ≥1000 ml/min → anual; 400–999 ml/min → trimestral; &lt;400 ml/min → mensal · EAV → sempre mensal). Acessos CVC não têm periodicidade Qa definida no protocolo e não constam desta lista.</p>
       <div id="listaPrioridades"></div>
     </div>
   </section>
@@ -261,7 +276,7 @@
 <script>
 /* ======================= CONFIGURAÇÃO — editar aqui ======================= */
 const TURNOS = ["Manhã", "Tarde", "Noite"];
-const MEDICOS = ["Dr. António Silva", "Dra. Marta Costa", "Dr. Pedro Nunes"];
+const MEDICOS = ["Dr. Nuno Rosa", "Dr. Pedro Vieira", "Dra. A. Carlota Vida"];
 /* =========================================================================== */
 
 const STORAGE_PATIENTS = "qa_app_doentes";
@@ -280,6 +295,7 @@ let doentes = loadData(STORAGE_PATIENTS, []);
 let avaliacoes = loadData(STORAGE_ASSESSMENTS, []);
 let editingDoenteId = null;
 let editingAvalId = null;
+let formAcessos = [];
 const charts = {};
 
 function loadData(key, fallback) {
@@ -290,6 +306,22 @@ function loadData(key, fallback) {
 }
 function saveDoentes() { localStorage.setItem(STORAGE_PATIENTS, JSON.stringify(doentes)); }
 function saveAvaliacoes() { localStorage.setItem(STORAGE_ASSESSMENTS, JSON.stringify(avaliacoes)); }
+
+// Doentes criados antes de existir suporte a múltiplos acessos tinham tipoAcesso/localizacao
+// diretamente no doente. Migra esses registos para doente.acessos = [ {...} ] uma única vez.
+function migrarParaMultiAcesso() {
+  let alterado = false;
+  doentes = doentes.map(d => {
+    if (d.acessos) return d;
+    alterado = true;
+    const acessoId = uid();
+    avaliacoes.forEach(a => { if (a.doenteId === d.id && !a.acessoId) a.acessoId = acessoId; });
+    const { tipoAcesso, localizacao, ...resto } = d;
+    return { ...resto, acessos: [{ id: acessoId, tipoAcesso, localizacao, criadoEm: d.criadoEm }] };
+  });
+  if (alterado) { saveDoentes(); saveAvaliacoes(); }
+}
+migrarParaMultiAcesso();
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
@@ -317,18 +349,18 @@ function escapeHtml(str) {
 
 /* ======================= LÓGICA DE DOMÍNIO ======================= */
 
-function getAvaliacoesDoente(doenteId) {
+function getAvaliacoesAcesso(acessoId) {
   return avaliacoes
-    .filter(a => a.doenteId === doenteId)
+    .filter(a => a.acessoId === acessoId)
     .sort((a,b) => a.data.localeCompare(b.data) || a.criadoEm - b.criadoEm);
 }
-function getUltimaAvaliacao(doenteId) {
-  const lista = getAvaliacoesDoente(doenteId);
+function getUltimaAvaliacaoAcesso(acessoId) {
+  const lista = getAvaliacoesAcesso(acessoId);
   return lista.length ? lista[lista.length - 1] : null;
 }
-// Última avaliação estritamente anterior a uma data/registo dado (para calcular decréscimo e evitar comparar consigo própria ao editar)
-function getAvaliacaoAnterior(doenteId, data, excludeId) {
-  const lista = getAvaliacoesDoente(doenteId).filter(a => a.id !== excludeId);
+// Última avaliação estritamente anterior a uma data dada (para calcular decréscimo e evitar comparar consigo própria ao editar)
+function getAvaliacaoAnterior(acessoId, data, excludeId) {
+  const lista = getAvaliacoesAcesso(acessoId).filter(a => a.id !== excludeId);
   const anteriores = lista.filter(a => a.data < data || (a.data === data && a.id < (excludeId || "")));
   return anteriores.length ? anteriores[anteriores.length - 1] : null;
 }
@@ -348,15 +380,15 @@ function computeAlarme(tipoAcesso, dados, qaAnterior) {
   return { alarme: motivos.length > 0, motivos };
 }
 
-// Periodicidade prevista para a próxima avaliação, segundo o protocolo. CVC não é abrangido.
-function computeProximaAvaliacao(doente) {
-  if (doente.tipoAcesso === "CVC") return null;
-  const ultima = getUltimaAvaliacao(doente.id);
+// Periodicidade prevista para a próxima avaliação de UM acesso, segundo o protocolo. CVC não é abrangido.
+function computeProximaAvaliacao(acesso) {
+  if (acesso.tipoAcesso === "CVC") return null;
+  const ultima = getUltimaAvaliacaoAcesso(acesso.id);
   if (!ultima) {
-    return { data: doente.criadoEm, baseData: null, meses: null, semBasal: true };
+    return { data: acesso.criadoEm, baseData: null, meses: null, semBasal: true };
   }
   let meses;
-  if (doente.tipoAcesso === "EAV") {
+  if (acesso.tipoAcesso === "EAV") {
     meses = 1;
   } else {
     if (ultima.qa >= 1000) meses = 12;
@@ -386,7 +418,7 @@ function switchView(name, opts) {
   if (name === "dashboard") renderDashboard();
   if (name === "doentes") renderDoentes();
   if (name === "ficha") renderFicha(opts && opts.doenteId);
-  if (name === "avaliacao") renderFormAvaliacao(opts && opts.doenteId);
+  if (name === "avaliacao") renderFormAvaliacao(opts && opts.doenteId, opts && opts.acessoId);
   if (name === "prioridades") renderPrioridades();
 }
 
@@ -418,9 +450,10 @@ function fillSelect(select, options, placeholder) {
 function renderDashboard() {
   const totalDoentes = doentes.length;
   const totalAvaliacoes = avaliacoes.length;
+  const todosAcessos = doentes.flatMap(d => d.acessos);
 
-  const estados = doentes.map(d => {
-    const u = getUltimaAvaliacao(d.id);
+  const estados = todosAcessos.map(a => {
+    const u = getUltimaAvaliacaoAcesso(a.id);
     return u ? u.alarme : null;
   });
   const comAlarme = estados.filter(e => e === true).length;
@@ -432,13 +465,13 @@ function renderDashboard() {
   document.getElementById("dashStats").innerHTML = `
     <div class="card stat"><div class="num">${totalDoentes}</div><div class="lbl">Doentes registados</div></div>
     <div class="card stat"><div class="num">${totalAvaliacoes}</div><div class="lbl">Avaliações realizadas</div></div>
-    <div class="card stat danger"><div class="num">${avaliados ? pctAlarme + "%" : "—"}</div><div class="lbl">Com alarme (última avaliação)</div></div>
-    <div class="card stat ok"><div class="num">${avaliados ? pctSem + "%" : "—"}</div><div class="lbl">Sem alarme (última avaliação)</div></div>
+    <div class="card stat danger"><div class="num">${avaliados ? pctAlarme + "%" : "—"}</div><div class="lbl">Acessos com alarme</div></div>
+    <div class="card stat ok"><div class="num">${avaliados ? pctSem + "%" : "—"}</div><div class="lbl">Acessos sem alarme</div></div>
   `;
 
   // Tipo de acesso
   const tipos = ["FAV","EAV","CVC"];
-  const tipoCounts = tipos.map(t => doentes.filter(d => d.tipoAcesso === t).length);
+  const tipoCounts = tipos.map(t => todosAcessos.filter(a => a.tipoAcesso === t).length);
   renderChart("chartTipoAcesso", "doughnut", {
     labels: tipos,
     datasets: [{ data: tipoCounts, backgroundColor: ["#0f766e","#2563eb","#d97706"] }]
@@ -447,7 +480,7 @@ function renderDashboard() {
   // Alarme
   renderChart("chartAlarme", "doughnut", {
     labels: ["Com alarme","Sem alarme","Sem avaliação"],
-    datasets: [{ data: [comAlarme, semAlarme, totalDoentes - avaliados], backgroundColor: ["#dc2626","#16a34a","#94a3b8"] }]
+    datasets: [{ data: [comAlarme, semAlarme, todosAcessos.length - avaliados], backgroundColor: ["#dc2626","#16a34a","#94a3b8"] }]
   });
 
   // Turno
@@ -482,18 +515,51 @@ function renderChart(canvasId, type, data, extraOptions) {
 fillSelect(document.getElementById("doenteTurno"), TURNOS);
 fillSelect(document.getElementById("doenteMedico"), MEDICOS);
 
+function renderAcessosList() {
+  const cont = document.getElementById("acessosList");
+  if (!formAcessos.length) {
+    cont.innerHTML = `<div class="empty" style="padding:10px 0;">Nenhum acesso adicionado ainda.</div>`;
+    return;
+  }
+  cont.innerHTML = formAcessos.map((a, i) => `
+    <div class="acesso-row">
+      <span><strong>${a.tipoAcesso}</strong> — ${escapeHtml(a.localizacao)}</span>
+      <button type="button" class="link" data-remove-acesso="${i}">Remover</button>
+    </div>
+  `).join("");
+  cont.querySelectorAll("[data-remove-acesso]").forEach(b => b.addEventListener("click", () => {
+    const idx = Number(b.dataset.removeAcesso);
+    const acesso = formAcessos[idx];
+    const temHistorico = editingDoenteId && avaliacoes.some(a => a.acessoId === acesso.id);
+    if (temHistorico && !confirm("Este acesso já tem avaliações registadas. Remover o acesso também elimina essas avaliações. Continuar?")) return;
+    formAcessos.splice(idx, 1);
+    renderAcessosList();
+  }));
+}
+
+document.getElementById("addAcessoBtn").addEventListener("click", () => {
+  const tipo = document.getElementById("novoAcessoTipo").value;
+  const loc = document.getElementById("novoAcessoLocalizacao").value.trim();
+  if (!loc) { toast("Indique a localização do acesso.", true); return; }
+  formAcessos.push({ id: uid(), tipoAcesso: tipo, localizacao: loc, criadoEm: todayISO() });
+  document.getElementById("novoAcessoLocalizacao").value = "";
+  renderAcessosList();
+});
+
 document.getElementById("formDoente").addEventListener("submit", e => {
   e.preventDefault();
+  if (!formAcessos.length) { toast("Adicione pelo menos um acesso vascular.", true); return; }
   const doente = {
     id: editingDoenteId || uid(),
     nome: document.getElementById("doenteNome").value.trim(),
-    tipoAcesso: document.getElementById("doenteTipoAcesso").value,
-    localizacao: document.getElementById("doenteLocalizacao").value.trim(),
     turno: document.getElementById("doenteTurno").value,
     medico: document.getElementById("doenteMedico").value,
-    criadoEm: editingDoenteId ? doentes.find(d => d.id === editingDoenteId).criadoEm : todayISO()
+    criadoEm: editingDoenteId ? doentes.find(d => d.id === editingDoenteId).criadoEm : todayISO(),
+    acessos: formAcessos.map(a => ({ ...a }))
   };
   if (editingDoenteId) {
+    const idsAtuais = new Set(doente.acessos.map(a => a.id));
+    avaliacoes = avaliacoes.filter(a => a.doenteId !== editingDoenteId || idsAtuais.has(a.acessoId));
     doentes = doentes.map(d => d.id === editingDoenteId ? doente : d);
     toast("Doente atualizado.");
   } else {
@@ -501,6 +567,7 @@ document.getElementById("formDoente").addEventListener("submit", e => {
     toast("Doente registado.");
   }
   saveDoentes();
+  saveAvaliacoes();
   resetFormDoente();
   renderDoentes();
 });
@@ -509,10 +576,12 @@ document.getElementById("doenteCancelBtn").addEventListener("click", resetFormDo
 
 function resetFormDoente() {
   editingDoenteId = null;
+  formAcessos = [];
   document.getElementById("formDoente").reset();
   document.getElementById("doenteFormTitle").textContent = "Registar Doente";
   document.getElementById("doenteSubmitBtn").textContent = "Registar Doente";
   document.getElementById("doenteCancelBtn").style.display = "none";
+  renderAcessosList();
 }
 
 function renderDoentes() {
@@ -522,12 +591,19 @@ function renderDoentes() {
     return;
   }
   const rows = doentes.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => {
-    const u = getUltimaAvaliacao(d.id);
-    const badge = u ? (u.alarme ? `<span class="badge alarme">Alarme</span>` : `<span class="badge ok">Sem alarme</span>`) : `<span class="badge muted">Sem avaliação</span>`;
+    const estadosD = d.acessos.map(a => {
+      const u = getUltimaAvaliacaoAcesso(a.id);
+      return u ? u.alarme : null;
+    });
+    let badge;
+    if (estadosD.some(e => e === true)) badge = `<span class="badge alarme">Alarme</span>`;
+    else if (estadosD.length && estadosD.every(e => e === false)) badge = `<span class="badge ok">Sem alarme</span>`;
+    else if (estadosD.some(e => e === false)) badge = `<span class="badge warn">Avaliação parcial</span>`;
+    else badge = `<span class="badge muted">Sem avaliação</span>`;
+    const acessosResumo = d.acessos.map(a => `${a.tipoAcesso} (${escapeHtml(a.localizacao)})`).join(", ");
     return `<tr class="clickable" data-id="${d.id}">
       <td>${escapeHtml(d.nome)}</td>
-      <td>${d.tipoAcesso}</td>
-      <td>${escapeHtml(d.localizacao)}</td>
+      <td>${acessosResumo}</td>
       <td>${escapeHtml(d.turno)}</td>
       <td>${escapeHtml(d.medico)}</td>
       <td>${badge}</td>
@@ -538,7 +614,7 @@ function renderDoentes() {
     </tr>`;
   }).join("");
   cont.innerHTML = `<table>
-    <thead><tr><th>Nome</th><th>Acesso</th><th>Localização</th><th>Turno</th><th>Médico</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Nome</th><th>Acessos</th><th>Turno</th><th>Médico</th><th>Estado</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 
@@ -556,11 +632,11 @@ function editDoente(id) {
   const d = doentes.find(x => x.id === id);
   if (!d) return;
   editingDoenteId = id;
+  formAcessos = d.acessos.map(a => ({ ...a }));
   document.getElementById("doenteNome").value = d.nome;
-  document.getElementById("doenteTipoAcesso").value = d.tipoAcesso;
-  document.getElementById("doenteLocalizacao").value = d.localizacao;
   document.getElementById("doenteTurno").value = d.turno;
   document.getElementById("doenteMedico").value = d.medico;
+  renderAcessosList();
   document.getElementById("doenteFormTitle").textContent = "Editar Doente";
   document.getElementById("doenteSubmitBtn").textContent = "Guardar alterações";
   document.getElementById("doenteCancelBtn").style.display = "inline-block";
@@ -582,7 +658,7 @@ function removeDoente(id) {
 
 function populateFichaSelect(selectedId) {
   const sel = document.getElementById("fichaSelect");
-  fillSelect(sel, doentes.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => ({ value: d.id, label: `${d.nome} (${d.tipoAcesso})` })), "— escolher doente —");
+  fillSelect(sel, doentes.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => ({ value: d.id, label: `${d.nome} — ${d.acessos.map(a => a.tipoAcesso).join("/")}` })), "— escolher doente —");
   if (selectedId) sel.value = selectedId;
 }
 
@@ -603,8 +679,54 @@ function renderFichaConteudo(doenteId) {
     cont.innerHTML = doentes.length ? "" : `<div class="card"><div class="empty">Sem doentes registados. Vá a "Registar Doente".</div></div>`;
     return;
   }
-  const historico = getAvaliacoesDoente(d.id).slice().reverse();
-  const proxima = computeProximaAvaliacao(d);
+
+  const infoCard = `
+    <div class="card">
+      <div class="kv">
+        <div><b>Nome</b> ${escapeHtml(d.nome)}</div>
+        <div><b>Turno</b> ${escapeHtml(d.turno)}</div>
+        <div><b>Médico</b> ${escapeHtml(d.medico)}</div>
+        <div><b>Registado em</b> ${formatDatePT(d.criadoEm)}</div>
+      </div>
+    </div>
+  `;
+
+  cont.innerHTML = infoCard + d.acessos.map(acesso => renderAcessoSection(acesso)).join("");
+
+  d.acessos.forEach(acesso => {
+    const btn = document.getElementById(`btnNovaAval-${acesso.id}`);
+    if (btn) btn.addEventListener("click", () => switchView("avaliacao", { doenteId: d.id, acessoId: acesso.id }));
+    const historico = getAvaliacoesAcesso(acesso.id);
+    if (historico.length) {
+      renderChart(`chartQa-${acesso.id}`, "line", {
+        labels: historico.map(a => formatDatePT(a.data)),
+        datasets: [{
+          label: "Qa (ml/min)",
+          data: historico.map(a => a.qa),
+          borderColor: "#0f766e",
+          backgroundColor: historico.map(a => a.alarme ? "#dc2626" : "#0f766e"),
+          pointBackgroundColor: historico.map(a => a.alarme ? "#dc2626" : "#0f766e"),
+          pointRadius: 5,
+          tension: 0.25
+        }]
+      }, { plugins: { legend: { display: false } } });
+    }
+  });
+
+  cont.querySelectorAll("button[data-action=edit-aval]").forEach(b => b.addEventListener("click", () => {
+    const a = avaliacoes.find(x => x.id === b.dataset.id);
+    if (!a) return;
+    switchView("avaliacao", { doenteId: d.id, acessoId: a.acessoId });
+    editAvaliacao(a.id);
+  }));
+  cont.querySelectorAll("button[data-action=remove-aval]").forEach(b => b.addEventListener("click", () => {
+    removeAvaliacao(b.dataset.id, d.id);
+  }));
+}
+
+function renderAcessoSection(acesso) {
+  const historicoDesc = getAvaliacoesAcesso(acesso.id).slice().reverse();
+  const proxima = computeProximaAvaliacao(acesso);
 
   let proximaHtml = `<span class="badge muted">Não aplicável (CVC)</span>`;
   if (proxima) {
@@ -618,61 +740,22 @@ function renderFichaConteudo(doenteId) {
     }
   }
 
-  cont.innerHTML = `
+  return `
     <div class="card">
       <div class="flex-between">
-        <div class="kv">
-          <div><b>Nome</b> ${escapeHtml(d.nome)}</div>
-          <div><b>Tipo de acesso</b> ${d.tipoAcesso}</div>
-          <div><b>Localização</b> ${escapeHtml(d.localizacao)}</div>
-          <div><b>Turno</b> ${escapeHtml(d.turno)}</div>
-          <div><b>Médico</b> ${escapeHtml(d.medico)}</div>
-          <div><b>Registado em</b> ${formatDatePT(d.criadoEm)}</div>
-          <div><b>Próxima avaliação</b> ${proximaHtml}</div>
-        </div>
-        <button class="btn" id="btnNovaAvalFicha">+ Nova Avaliação</button>
+        <h3 style="margin:0;">${acesso.tipoAcesso} — ${escapeHtml(acesso.localizacao)}</h3>
+        <button class="btn" id="btnNovaAval-${acesso.id}">+ Nova Avaliação</button>
       </div>
-    </div>
-    <div class="card">
-      <h3>Evolução do Qa</h3>
-      ${historico.length ? `<canvas id="chartFichaQa"></canvas>` : `<div class="empty">Sem avaliações registadas.</div>`}
-    </div>
-    <div class="card">
-      <h3>Histórico de avaliações</h3>
-      ${historico.length ? renderHistoricoTable(d, historico) : `<div class="empty">Sem avaliações registadas.</div>`}
+      <p class="subtitle" style="margin-top:8px;">Próxima avaliação: ${proximaHtml}</p>
+      ${historicoDesc.length ? `<canvas id="chartQa-${acesso.id}"></canvas>` : `<div class="empty">Sem avaliações registadas para este acesso.</div>`}
+      ${historicoDesc.length ? renderHistoricoTable(historicoDesc) : ""}
     </div>
   `;
-
-  document.getElementById("btnNovaAvalFicha").addEventListener("click", () => switchView("avaliacao", { doenteId: d.id }));
-
-  if (historico.length) {
-    const cronologico = historico.slice().reverse();
-    renderChart("chartFichaQa", "line", {
-      labels: cronologico.map(a => formatDatePT(a.data)),
-      datasets: [{
-        label: "Qa (ml/min)",
-        data: cronologico.map(a => a.qa),
-        borderColor: "#0f766e",
-        backgroundColor: cronologico.map(a => a.alarme ? "#dc2626" : "#0f766e"),
-        pointBackgroundColor: cronologico.map(a => a.alarme ? "#dc2626" : "#0f766e"),
-        pointRadius: 5,
-        tension: 0.25
-      }]
-    }, { plugins: { legend: { display: false } } });
-
-    cont.querySelectorAll("button[data-action=edit-aval]").forEach(b => b.addEventListener("click", () => {
-      switchView("avaliacao", { doenteId: d.id });
-      editAvaliacao(b.dataset.id);
-    }));
-    cont.querySelectorAll("button[data-action=remove-aval]").forEach(b => b.addEventListener("click", () => {
-      removeAvaliacao(b.dataset.id, d.id);
-    }));
-  }
 }
 
-function renderHistoricoTable(doente, historico) {
-  const rows = historico.map((a, idx) => {
-    const anteriorNaLista = historico[idx + 1]; // historico está do mais recente para o mais antigo
+function renderHistoricoTable(historicoDesc) {
+  const rows = historicoDesc.map((a, idx) => {
+    const anteriorNaLista = historicoDesc[idx + 1]; // historicoDesc está do mais recente para o mais antigo
     let variacao = "—";
     if (anteriorNaLista) {
       const pct = ((a.qa - anteriorNaLista.qa) / anteriorNaLista.qa) * 100;
@@ -711,19 +794,35 @@ function removeAvaliacao(id, doenteId) {
 
 /* ======================= NOVA AVALIAÇÃO ======================= */
 
-function renderFormAvaliacao(preselectDoenteId) {
+function populateAvalAcessoSelect(doenteId, preselectAcessoId) {
+  const sel = document.getElementById("avalAcesso");
+  const doente = doentes.find(d => d.id === doenteId);
+  if (!doente || !doente.acessos.length) {
+    fillSelect(sel, [], "— sem acessos —");
+    return;
+  }
+  fillSelect(sel, doente.acessos.map(a => ({ value: a.id, label: `${a.tipoAcesso} — ${a.localizacao}` })));
+  if (preselectAcessoId) sel.value = preselectAcessoId;
+}
+
+document.getElementById("avalDoente").addEventListener("change", e => populateAvalAcessoSelect(e.target.value));
+
+function renderFormAvaliacao(preselectDoenteId, preselectAcessoId) {
   resetFormAvaliacao();
   const sel = document.getElementById("avalDoente");
-  fillSelect(sel, doentes.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => ({ value: d.id, label: `${d.nome} (${d.tipoAcesso})` })), "— escolher doente —");
+  fillSelect(sel, doentes.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => ({ value: d.id, label: d.nome })), "— escolher doente —");
   if (preselectDoenteId) sel.value = preselectDoenteId;
+  populateAvalAcessoSelect(sel.value, preselectAcessoId);
   document.getElementById("avalData").value = todayISO();
 }
 
 document.getElementById("formAvaliacao").addEventListener("submit", e => {
   e.preventDefault();
   const doenteId = document.getElementById("avalDoente").value;
+  const acessoId = document.getElementById("avalAcesso").value;
   const doente = doentes.find(d => d.id === doenteId);
-  if (!doente) { toast("Selecione um doente.", true); return; }
+  const acesso = doente && doente.acessos.find(a => a.id === acessoId);
+  if (!doente || !acesso) { toast("Selecione o doente e o acesso vascular.", true); return; }
 
   const dados = {
     sinaisInflamatorios: document.querySelector('input[name=avalInflamatorios]:checked').value === "sim",
@@ -733,12 +832,12 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
     qa: Number(document.getElementById("avalQa").value)
   };
   const data = document.getElementById("avalData").value;
-  const anterior = getAvaliacaoAnterior(doenteId, data, editingAvalId);
-  const { alarme, motivos } = computeAlarme(doente.tipoAcesso, dados, anterior ? anterior.qa : null);
+  const anterior = getAvaliacaoAnterior(acessoId, data, editingAvalId);
+  const { alarme, motivos } = computeAlarme(acesso.tipoAcesso, dados, anterior ? anterior.qa : null);
 
   const avaliacao = {
     id: editingAvalId || uid(),
-    doenteId, data,
+    doenteId, acessoId, data,
     ...dados,
     alarme, motivos,
     criadoEm: editingAvalId ? avaliacoes.find(a => a.id === editingAvalId).criadoEm : Date.now()
@@ -772,6 +871,7 @@ function editAvaliacao(id) {
   if (!a) return;
   editingAvalId = id;
   document.getElementById("avalDoente").value = a.doenteId;
+  populateAvalAcessoSelect(a.doenteId, a.acessoId);
   document.getElementById("avalData").value = a.data;
   document.querySelector(`input[name=avalInflamatorios][value=${a.sinaisInflamatorios ? "sim" : "nao"}]`).checked = true;
   document.querySelector(`input[name=avalAneurisma][value=${a.aneurisma ? "sim" : "nao"}]`).checked = true;
@@ -788,19 +888,22 @@ function editAvaliacao(id) {
 
 function renderPrioridades() {
   const cont = document.getElementById("listaPrioridades");
-  const elegiveis = doentes.filter(d => d.tipoAcesso === "FAV" || d.tipoAcesso === "EAV");
-  if (!elegiveis.length) {
-    cont.innerHTML = `<div class="empty">Sem doentes FAV/EAV registados.</div>`;
+  const linhas = [];
+  doentes.forEach(d => {
+    d.acessos.filter(a => a.tipoAcesso === "FAV" || a.tipoAcesso === "EAV").forEach(a => {
+      const proxima = computeProximaAvaliacao(a);
+      const atraso = diasAtraso(proxima.data);
+      const ultima = getUltimaAvaliacaoAcesso(a.id);
+      linhas.push({ doente: d, acesso: a, proxima, atraso, ultima });
+    });
+  });
+  if (!linhas.length) {
+    cont.innerHTML = `<div class="empty">Sem acessos FAV/EAV registados.</div>`;
     return;
   }
-  const linhas = elegiveis.map(d => {
-    const proxima = computeProximaAvaliacao(d);
-    const atraso = diasAtraso(proxima.data);
-    const ultima = getUltimaAvaliacao(d.id);
-    return { doente: d, proxima, atraso, ultima };
-  }).sort((a,b) => b.atraso - a.atraso);
+  linhas.sort((x,y) => y.atraso - x.atraso);
 
-  const rows = linhas.map(({ doente: d, proxima, atraso, ultima }) => {
+  const rows = linhas.map(({ doente: d, acesso: a, proxima, atraso, ultima }) => {
     let situacao;
     if (atraso > 0) situacao = `<span class="badge alarme">Atrasado ${atraso} dia(s)</span>`;
     else if (atraso >= -7) situacao = `<span class="badge warn">Faltam ${-atraso} dia(s)</span>`;
@@ -808,7 +911,7 @@ function renderPrioridades() {
     const alarmeAtual = ultima ? (ultima.alarme ? `<span class="badge alarme">Alarme</span>` : `<span class="badge ok">Sem alarme</span>`) : `<span class="badge muted">Sem avaliação</span>`;
     return `<tr class="clickable" data-id="${d.id}">
       <td>${escapeHtml(d.nome)}</td>
-      <td>${d.tipoAcesso}</td>
+      <td>${a.tipoAcesso} — ${escapeHtml(a.localizacao)}</td>
       <td>${escapeHtml(d.turno)}</td>
       <td>${escapeHtml(d.medico)}</td>
       <td>${ultima ? `${formatDatePT(ultima.data)} (${ultima.qa} ml/min)` : "Nunca avaliado"}</td>
@@ -833,7 +936,8 @@ function renderPrioridades() {
 document.getElementById("exportDoentesBtn").addEventListener("click", () => {
   if (!doentes.length) { toast("Sem doentes para exportar.", true); return; }
   const data = doentes.map(d => ({
-    ID: d.id, Nome: d.nome, "Tipo de Acesso": d.tipoAcesso, Localização: d.localizacao,
+    ID: d.id, Nome: d.nome,
+    "Acessos Vasculares": d.acessos.map(a => `${a.tipoAcesso} (${a.localizacao})`).join("; "),
     Turno: d.turno, "Médico": d.medico, "Data de Registo": d.criadoEm
   }));
   const ws = XLSX.utils.json_to_sheet(data);
@@ -846,8 +950,11 @@ document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
   if (!avaliacoes.length) { toast("Sem avaliações para exportar.", true); return; }
   const data = avaliacoes.slice().sort((a,b) => a.data.localeCompare(b.data)).map(a => {
     const d = doentes.find(x => x.id === a.doenteId);
+    const acesso = d && d.acessos.find(x => x.id === a.acessoId);
     return {
-      ID: a.id, Doente: d ? d.nome : "(removido)", "Tipo de Acesso": d ? d.tipoAcesso : "",
+      ID: a.id, Doente: d ? d.nome : "(removido)",
+      "Tipo de Acesso": acesso ? acesso.tipoAcesso : "",
+      "Localização do Acesso": acesso ? acesso.localizacao : "",
       Data: a.data, "Sinais Inflamatórios": a.sinaisInflamatorios ? "Sim" : "Não",
       Aneurisma: a.aneurisma ? "Sim" : "Não",
       Sopro: a.sopro === "descontinuo" ? "Descontínuo" : "Contínuo",
@@ -863,6 +970,7 @@ document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
 });
 
 /* ======================= INIT ======================= */
+renderAcessosList();
 renderDashboard();
 </script>
 </body>
