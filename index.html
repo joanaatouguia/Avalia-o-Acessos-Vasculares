@@ -86,9 +86,13 @@
   .flex-between{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;}
   .kv{font-size:14px;line-height:1.9;}
   .kv b{color:var(--muted);font-weight:600;display:inline-block;min-width:150px;}
-  .acesso-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;}
-  .acesso-adder{display:grid;grid-template-columns:110px 1fr auto;gap:10px;align-items:end;margin-top:8px;}
-  @media(max-width:700px){.acesso-adder{grid-template-columns:1fr;}}
+  .acesso-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;margin-bottom:6px;font-size:14px;gap:10px;flex-wrap:wrap;}
+  .acesso-adder{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:8px;}
+  .acesso-adder .tipo-field{width:110px;}
+  .acesso-adder .loc-field{flex:1;min-width:180px;}
+  .acesso-adder .maturacao-field{display:flex;align-items:center;gap:6px;font-size:14px;height:38px;white-space:nowrap;font-weight:400;}
+  .table-scroll{overflow-x:auto;}
+  .sub-detalhe{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
 </style>
 </head>
 <body>
@@ -154,21 +158,21 @@
         </div>
         <div class="field">
           <label>Acessos vasculares</label>
-          <p class="subtitle" style="margin:0 0 8px;">Um doente pode ter mais do que um acesso (ex: FAV + CVC). Adicione todos os que se aplicam.</p>
+          <p class="subtitle" style="margin:0 0 8px;">Um doente pode ter mais do que um acesso (ex: FAV + EAV). Adicione todos os que se aplicam.</p>
           <div id="acessosList"></div>
           <div class="acesso-adder">
-            <div class="field" style="margin-bottom:0;">
+            <div class="field tipo-field">
               <label>Tipo</label>
               <select id="novoAcessoTipo">
                 <option value="FAV">FAV</option>
                 <option value="EAV">EAV</option>
-                <option value="CVC">CVC</option>
               </select>
             </div>
-            <div class="field" style="margin-bottom:0;">
+            <div class="field loc-field">
               <label>Localização</label>
               <input type="text" id="novoAcessoLocalizacao" placeholder="ex: Antebraço esquerdo">
             </div>
+            <label class="maturacao-field"><input type="checkbox" id="novoAcessoMaturacao" style="width:auto;"> Em maturação</label>
             <button type="button" class="btn secondary" id="addAcessoBtn">+ Adicionar acesso</button>
           </div>
         </div>
@@ -218,12 +222,20 @@
               <label><input type="radio" name="avalInflamatorios" value="sim"> Sim</label>
               <label><input type="radio" name="avalInflamatorios" value="nao" checked> Não</label>
             </div>
+            <div id="inflamatoriosDetalheWrap" class="sub-detalhe" style="display:none;">
+              <label style="font-weight:400;color:var(--muted);">Sinais presentes</label>
+              <div class="radio-group" id="inflamatoriosTiposGroup"></div>
+            </div>
           </div>
           <div class="field">
             <label>Aneurisma</label>
             <div class="radio-group">
               <label><input type="radio" name="avalAneurisma" value="sim"> Sim</label>
               <label><input type="radio" name="avalAneurisma" value="nao" checked> Não</label>
+            </div>
+            <div id="aneurismaTipoWrap" class="sub-detalhe" style="display:none;">
+              <label style="font-weight:400;color:var(--muted);">Tipo de aneurisma</label>
+              <select id="avalAneurismaTipo"></select>
             </div>
           </div>
           <div class="field">
@@ -245,6 +257,14 @@
             <label>Qa (ml/min)</label>
             <input type="number" id="avalQa" min="0" step="1" required>
           </div>
+          <div class="field">
+            <label>Taxa de Recirculação (%) <span style="font-weight:400;color:var(--muted);">— opcional</span></label>
+            <input type="number" id="avalRecirculacao" min="0" step="0.1">
+          </div>
+          <div class="field">
+            <label>Qb da Recirculação (ml/min) <span style="font-weight:400;color:var(--muted);">— opcional</span></label>
+            <input type="number" id="avalQb" min="0" step="1">
+          </div>
         </div>
         <button type="submit" class="btn" id="avalSubmitBtn">Guardar Avaliação</button>
         <button type="button" class="btn secondary" id="avalCancelBtn" style="display:none;">Cancelar edição</button>
@@ -256,7 +276,7 @@
   <section id="view-prioridades" class="view">
     <div class="card">
       <h2>Prioridades de avaliação</h2>
-      <p class="subtitle">Acessos vasculares do tipo FAV ou EAV, ordenados por atraso face à periodicidade do protocolo (FAV ≥1000 ml/min → anual; 400–999 ml/min → trimestral; &lt;400 ml/min → mensal · EAV → sempre mensal). Acessos CVC não têm periodicidade Qa definida no protocolo e não constam desta lista.</p>
+      <p class="subtitle">Acessos vasculares do tipo FAV ou EAV, ordenados por atraso face à periodicidade do protocolo (FAV ≥1000 ml/min → anual; 400–999 ml/min → trimestral; &lt;400 ml/min → mensal · EAV → sempre mensal). Acessos CVC ou ainda em maturação não têm periodicidade Qa aplicável e não constam desta lista.</p>
       <div id="listaPrioridades"></div>
     </div>
   </section>
@@ -275,8 +295,10 @@
 
 <script>
 /* ======================= CONFIGURAÇÃO — editar aqui ======================= */
-const TURNOS = ["Manhã", "Tarde", "Noite"];
+const TURNOS = ["Ímpar Manhã", "Ímpar Tarde", "Ímpar Noite", "Par Manhã", "Par Tarde", "Par Noite"];
 const MEDICOS = ["Dr. Nuno Rosa", "Dr. Pedro Vieira", "Dra. A. Carlota Vida"];
+const SINAIS_INFLAMATORIOS_TIPOS = ["Rubor", "Calor", "Dor", "Edema", "Exsudado purulento", "Febre"];
+const ANEURISMA_TIPOS = ["Verdadeiro", "Pseudoaneurisma"];
 /* =========================================================================== */
 
 const STORAGE_PATIENTS = "qa_app_doentes";
@@ -523,10 +545,20 @@ function renderAcessosList() {
   }
   cont.innerHTML = formAcessos.map((a, i) => `
     <div class="acesso-row">
-      <span><strong>${a.tipoAcesso}</strong> — ${escapeHtml(a.localizacao)}</span>
-      <button type="button" class="link" data-remove-acesso="${i}">Remover</button>
+      <span><strong>${a.tipoAcesso}</strong> — ${escapeHtml(a.localizacao)}${a.emMaturacao ? ' <span class="badge warn">Em maturação</span>' : ""}</span>
+      <span style="display:flex;align-items:center;gap:14px;">
+        <label style="font-weight:400;font-size:12.5px;display:inline-flex;align-items:center;gap:4px;">
+          <input type="checkbox" data-toggle-maturacao="${i}" ${a.emMaturacao ? "checked" : ""} style="width:auto;"> Em maturação
+        </label>
+        <button type="button" class="link" data-remove-acesso="${i}">Remover</button>
+      </span>
     </div>
   `).join("");
+  cont.querySelectorAll("[data-toggle-maturacao]").forEach(cb => cb.addEventListener("change", () => {
+    const idx = Number(cb.dataset.toggleMaturacao);
+    formAcessos[idx].emMaturacao = cb.checked;
+    renderAcessosList();
+  }));
   cont.querySelectorAll("[data-remove-acesso]").forEach(b => b.addEventListener("click", () => {
     const idx = Number(b.dataset.removeAcesso);
     const acesso = formAcessos[idx];
@@ -540,9 +572,11 @@ function renderAcessosList() {
 document.getElementById("addAcessoBtn").addEventListener("click", () => {
   const tipo = document.getElementById("novoAcessoTipo").value;
   const loc = document.getElementById("novoAcessoLocalizacao").value.trim();
+  const maturacao = document.getElementById("novoAcessoMaturacao").checked;
   if (!loc) { toast("Indique a localização do acesso.", true); return; }
-  formAcessos.push({ id: uid(), tipoAcesso: tipo, localizacao: loc, criadoEm: todayISO() });
+  formAcessos.push({ id: uid(), tipoAcesso: tipo, localizacao: loc, emMaturacao: maturacao, criadoEm: todayISO() });
   document.getElementById("novoAcessoLocalizacao").value = "";
+  document.getElementById("novoAcessoMaturacao").checked = false;
   renderAcessosList();
 });
 
@@ -600,7 +634,7 @@ function renderDoentes() {
     else if (estadosD.length && estadosD.every(e => e === false)) badge = `<span class="badge ok">Sem alarme</span>`;
     else if (estadosD.some(e => e === false)) badge = `<span class="badge warn">Avaliação parcial</span>`;
     else badge = `<span class="badge muted">Sem avaliação</span>`;
-    const acessosResumo = d.acessos.map(a => `${a.tipoAcesso} (${escapeHtml(a.localizacao)})`).join(", ");
+    const acessosResumo = d.acessos.map(a => `${a.tipoAcesso} (${escapeHtml(a.localizacao)}${a.emMaturacao ? " — em maturação" : ""})`).join(", ");
     return `<tr class="clickable" data-id="${d.id}">
       <td>${escapeHtml(d.nome)}</td>
       <td>${acessosResumo}</td>
@@ -613,10 +647,10 @@ function renderDoentes() {
       </td>
     </tr>`;
   }).join("");
-  cont.innerHTML = `<table>
+  cont.innerHTML = `<div class="table-scroll"><table>
     <thead><tr><th>Nome</th><th>Acessos</th><th>Turno</th><th>Médico</th><th>Estado</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table></div>`;
 
   cont.querySelectorAll("tr[data-id]").forEach(tr => {
     tr.addEventListener("click", e => {
@@ -726,29 +760,35 @@ function renderFichaConteudo(doenteId) {
 
 function renderAcessoSection(acesso) {
   const historicoDesc = getAvaliacoesAcesso(acesso.id).slice().reverse();
-  const proxima = computeProximaAvaliacao(acesso);
 
-  let proximaHtml = `<span class="badge muted">Não aplicável (CVC)</span>`;
-  if (proxima) {
-    if (proxima.semBasal) {
-      proximaHtml = `<span class="badge warn">Avaliação basal em falta desde ${formatDatePT(proxima.data)}</span>`;
-    } else {
-      const atraso = diasAtraso(proxima.data);
-      if (atraso > 0) proximaHtml = `<span class="badge alarme">Atrasada ${atraso} dia(s) — prevista ${formatDatePT(proxima.data)}</span>`;
-      else if (atraso >= -7) proximaHtml = `<span class="badge warn">Prevista em ${-atraso} dia(s) — ${formatDatePT(proxima.data)}</span>`;
-      else proximaHtml = `<span class="badge ok">Prevista para ${formatDatePT(proxima.data)}</span>`;
+  let proximaHtml;
+  if (acesso.emMaturacao) {
+    proximaHtml = `<span class="badge warn">Em maturação — ainda não indicado avaliar Qa</span>`;
+  } else {
+    const proxima = computeProximaAvaliacao(acesso);
+    proximaHtml = `<span class="badge muted">Não aplicável (CVC)</span>`;
+    if (proxima) {
+      if (proxima.semBasal) {
+        proximaHtml = `<span class="badge warn">Avaliação basal em falta desde ${formatDatePT(proxima.data)}</span>`;
+      } else {
+        const atraso = diasAtraso(proxima.data);
+        if (atraso > 0) proximaHtml = `<span class="badge alarme">Atrasada ${atraso} dia(s) — prevista ${formatDatePT(proxima.data)}</span>`;
+        else if (atraso >= -7) proximaHtml = `<span class="badge warn">Prevista em ${-atraso} dia(s) — ${formatDatePT(proxima.data)}</span>`;
+        else proximaHtml = `<span class="badge ok">Prevista para ${formatDatePT(proxima.data)}</span>`;
+      }
     }
   }
 
+  const tituloExtra = acesso.emMaturacao ? ` <span class="badge warn">Em maturação</span>` : "";
   return `
     <div class="card">
       <div class="flex-between">
-        <h3 style="margin:0;">${acesso.tipoAcesso} — ${escapeHtml(acesso.localizacao)}</h3>
+        <h3 style="margin:0;">${acesso.tipoAcesso} — ${escapeHtml(acesso.localizacao)}${tituloExtra}</h3>
         <button class="btn" id="btnNovaAval-${acesso.id}">+ Nova Avaliação</button>
       </div>
       <p class="subtitle" style="margin-top:8px;">Próxima avaliação: ${proximaHtml}</p>
       ${historicoDesc.length ? `<canvas id="chartQa-${acesso.id}"></canvas>` : `<div class="empty">Sem avaliações registadas para este acesso.</div>`}
-      ${historicoDesc.length ? renderHistoricoTable(historicoDesc) : ""}
+      ${historicoDesc.length ? `<div class="table-scroll">${renderHistoricoTable(historicoDesc)}</div>` : ""}
     </div>
   `;
 }
@@ -763,12 +803,16 @@ function renderHistoricoTable(historicoDesc) {
     }
     const badge = a.alarme ? `<span class="badge alarme">Alarme</span>` : `<span class="badge ok">Sem alarme</span>`;
     const motivos = a.alarme ? `<ul class="motivos-list">${a.motivos.map(m => `<li>${MOTIVO_LABEL[m]}</li>`).join("")}</ul>` : "";
+    const inflTxt = a.sinaisInflamatorios ? `Sim${(a.sinaisInflamatoriosTipos && a.sinaisInflamatoriosTipos.length) ? " (" + a.sinaisInflamatoriosTipos.join(", ") + ")" : ""}` : "Não";
+    const aneurismaTxt = a.aneurisma ? `Sim${a.aneurismaTipo ? " (" + a.aneurismaTipo + ")" : ""}` : "Não";
+    const recircTxt = a.recirculacao != null ? `${a.recirculacao}%${a.qb != null ? ` (Qb ${a.qb} ml/min)` : ""}` : "—";
     return `<tr>
       <td>${formatDatePT(a.data)}</td>
       <td>${a.qa} ml/min</td>
       <td>${variacao}</td>
-      <td>${a.sinaisInflamatorios ? "Sim" : "Não"}</td>
-      <td>${a.aneurisma ? "Sim" : "Não"}</td>
+      <td>${recircTxt}</td>
+      <td>${inflTxt}</td>
+      <td>${aneurismaTxt}</td>
       <td>${a.sopro === "descontinuo" ? "Descontínuo" : "Contínuo"}</td>
       <td>${a.fremito}</td>
       <td>${badge}${motivos}</td>
@@ -779,7 +823,7 @@ function renderHistoricoTable(historicoDesc) {
     </tr>`;
   }).join("");
   return `<table>
-    <thead><tr><th>Data</th><th>Qa</th><th>Variação</th><th>Sinais Inflam.</th><th>Aneurisma</th><th>Sopro</th><th>Frémito</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Data</th><th>Qa</th><th>Variação</th><th>Recirculação</th><th>Sinais Inflam.</th><th>Aneurisma</th><th>Sopro</th><th>Frémito</th><th>Estado</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -824,12 +868,27 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
   const acesso = doente && doente.acessos.find(a => a.id === acessoId);
   if (!doente || !acesso) { toast("Selecione o doente e o acesso vascular.", true); return; }
 
+  const inflamatoriosSim = document.querySelector('input[name=avalInflamatorios]:checked').value === "sim";
+  const inflamatoriosTipos = inflamatoriosSim ? Array.from(document.querySelectorAll('input[name=avalInflamatoriosTipo]:checked')).map(el => el.value) : [];
+  if (inflamatoriosSim && !inflamatoriosTipos.length) { toast("Selecione pelo menos um sinal inflamatório.", true); return; }
+
+  const aneurismaSim = document.querySelector('input[name=avalAneurisma]:checked').value === "sim";
+  const aneurismaTipo = aneurismaSim ? document.getElementById("avalAneurismaTipo").value : "";
+  if (aneurismaSim && !aneurismaTipo) { toast("Selecione o tipo de aneurisma.", true); return; }
+
+  const recircVal = document.getElementById("avalRecirculacao").value;
+  const qbVal = document.getElementById("avalQb").value;
+
   const dados = {
-    sinaisInflamatorios: document.querySelector('input[name=avalInflamatorios]:checked').value === "sim",
-    aneurisma: document.querySelector('input[name=avalAneurisma]:checked').value === "sim",
+    sinaisInflamatorios: inflamatoriosSim,
+    sinaisInflamatoriosTipos: inflamatoriosTipos,
+    aneurisma: aneurismaSim,
+    aneurismaTipo: aneurismaTipo,
     sopro: document.querySelector('input[name=avalSopro]:checked').value,
     fremito: document.getElementById("avalFremito").value,
-    qa: Number(document.getElementById("avalQa").value)
+    qa: Number(document.getElementById("avalQa").value),
+    recirculacao: recircVal !== "" ? Number(recircVal) : null,
+    qb: qbVal !== "" ? Number(qbVal) : null
   };
   const data = document.getElementById("avalData").value;
   const anterior = getAvaliacaoAnterior(acessoId, data, editingAvalId);
@@ -857,10 +916,27 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
 
 document.getElementById("avalCancelBtn").addEventListener("click", () => resetFormAvaliacao());
 
+function updateInflamatoriosVisibility() {
+  const sim = document.querySelector('input[name=avalInflamatorios]:checked').value === "sim";
+  document.getElementById("inflamatoriosDetalheWrap").style.display = sim ? "block" : "none";
+}
+function updateAneurismaVisibility() {
+  const sim = document.querySelector('input[name=avalAneurisma]:checked').value === "sim";
+  document.getElementById("aneurismaTipoWrap").style.display = sim ? "block" : "none";
+}
+document.querySelectorAll('input[name=avalInflamatorios]').forEach(r => r.addEventListener("change", updateInflamatoriosVisibility));
+document.querySelectorAll('input[name=avalAneurisma]').forEach(r => r.addEventListener("change", updateAneurismaVisibility));
+
 function resetFormAvaliacao() {
   editingAvalId = null;
   document.getElementById("formAvaliacao").reset();
   document.getElementById("avalData").value = todayISO();
+  document.querySelectorAll('input[name=avalInflamatoriosTipo]').forEach(cb => cb.checked = false);
+  document.getElementById("avalAneurismaTipo").value = "";
+  document.getElementById("avalRecirculacao").value = "";
+  document.getElementById("avalQb").value = "";
+  updateInflamatoriosVisibility();
+  updateAneurismaVisibility();
   document.getElementById("avalFormTitle").textContent = "Nova Avaliação";
   document.getElementById("avalSubmitBtn").textContent = "Guardar Avaliação";
   document.getElementById("avalCancelBtn").style.display = "none";
@@ -874,10 +950,16 @@ function editAvaliacao(id) {
   populateAvalAcessoSelect(a.doenteId, a.acessoId);
   document.getElementById("avalData").value = a.data;
   document.querySelector(`input[name=avalInflamatorios][value=${a.sinaisInflamatorios ? "sim" : "nao"}]`).checked = true;
+  updateInflamatoriosVisibility();
+  document.querySelectorAll('input[name=avalInflamatoriosTipo]').forEach(cb => cb.checked = (a.sinaisInflamatoriosTipos || []).includes(cb.value));
   document.querySelector(`input[name=avalAneurisma][value=${a.aneurisma ? "sim" : "nao"}]`).checked = true;
+  updateAneurismaVisibility();
+  document.getElementById("avalAneurismaTipo").value = a.aneurismaTipo || "";
   document.querySelector(`input[name=avalSopro][value=${a.sopro}]`).checked = true;
   document.getElementById("avalFremito").value = a.fremito;
   document.getElementById("avalQa").value = a.qa;
+  document.getElementById("avalRecirculacao").value = a.recirculacao != null ? a.recirculacao : "";
+  document.getElementById("avalQb").value = a.qb != null ? a.qb : "";
   document.getElementById("avalFormTitle").textContent = "Editar Avaliação";
   document.getElementById("avalSubmitBtn").textContent = "Guardar alterações";
   document.getElementById("avalCancelBtn").style.display = "inline-block";
@@ -890,7 +972,7 @@ function renderPrioridades() {
   const cont = document.getElementById("listaPrioridades");
   const linhas = [];
   doentes.forEach(d => {
-    d.acessos.filter(a => a.tipoAcesso === "FAV" || a.tipoAcesso === "EAV").forEach(a => {
+    d.acessos.filter(a => (a.tipoAcesso === "FAV" || a.tipoAcesso === "EAV") && !a.emMaturacao).forEach(a => {
       const proxima = computeProximaAvaliacao(a);
       const atraso = diasAtraso(proxima.data);
       const ultima = getUltimaAvaliacaoAcesso(a.id);
@@ -921,10 +1003,10 @@ function renderPrioridades() {
     </tr>`;
   }).join("");
 
-  cont.innerHTML = `<table>
+  cont.innerHTML = `<div class="table-scroll"><table>
     <thead><tr><th>Nome</th><th>Acesso</th><th>Turno</th><th>Médico</th><th>Última avaliação</th><th>Próxima prevista</th><th>Situação</th><th>Alarme</th></tr></thead>
     <tbody>${rows}</tbody>
-  </table>`;
+  </table></div>`;
 
   cont.querySelectorAll("tr[data-id]").forEach(tr => {
     tr.addEventListener("click", () => switchView("ficha", { doenteId: tr.dataset.id }));
@@ -937,7 +1019,7 @@ document.getElementById("exportDoentesBtn").addEventListener("click", () => {
   if (!doentes.length) { toast("Sem doentes para exportar.", true); return; }
   const data = doentes.map(d => ({
     ID: d.id, Nome: d.nome,
-    "Acessos Vasculares": d.acessos.map(a => `${a.tipoAcesso} (${a.localizacao})`).join("; "),
+    "Acessos Vasculares": d.acessos.map(a => `${a.tipoAcesso} (${a.localizacao})${a.emMaturacao ? " [em maturação]" : ""}`).join("; "),
     Turno: d.turno, "Médico": d.medico, "Data de Registo": d.criadoEm
   }));
   const ws = XLSX.utils.json_to_sheet(data);
@@ -956,9 +1038,13 @@ document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
       "Tipo de Acesso": acesso ? acesso.tipoAcesso : "",
       "Localização do Acesso": acesso ? acesso.localizacao : "",
       Data: a.data, "Sinais Inflamatórios": a.sinaisInflamatorios ? "Sim" : "Não",
+      "Tipos de Sinais Inflamatórios": (a.sinaisInflamatoriosTipos || []).join("; "),
       Aneurisma: a.aneurisma ? "Sim" : "Não",
+      "Tipo de Aneurisma": a.aneurismaTipo || "",
       Sopro: a.sopro === "descontinuo" ? "Descontínuo" : "Contínuo",
       Frémito: a.fremito, "Qa (ml/min)": a.qa,
+      "Taxa de Recirculação (%)": a.recirculacao != null ? a.recirculacao : "",
+      "Qb da Recirculação (ml/min)": a.qb != null ? a.qb : "",
       Alarme: a.alarme ? "Sim" : "Não",
       "Motivos do Alarme": a.motivos.map(m => MOTIVO_LABEL[m]).join("; ")
     };
@@ -970,6 +1056,12 @@ document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
 });
 
 /* ======================= INIT ======================= */
+document.getElementById("inflamatoriosTiposGroup").innerHTML = SINAIS_INFLAMATORIOS_TIPOS
+  .map(t => `<label><input type="checkbox" name="avalInflamatoriosTipo" value="${escapeHtml(t)}"> ${escapeHtml(t)}</label>`)
+  .join("");
+fillSelect(document.getElementById("avalAneurismaTipo"), ANEURISMA_TIPOS, "— selecionar —");
+updateInflamatoriosVisibility();
+updateAneurismaVisibility();
 renderAcessosList();
 renderDashboard();
 </script>
