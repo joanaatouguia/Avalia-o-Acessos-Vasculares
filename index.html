@@ -212,7 +212,7 @@
           </div>
           <div class="field">
             <label>Data da avaliação</label>
-            <input type="date" id="avalData" required>
+            <input type="text" id="avalData" placeholder="DD/MM/AAAA" maxlength="10" inputmode="numeric" required>
           </div>
         </div>
         <div class="grid cols-2">
@@ -289,7 +289,7 @@
             </div>
             <div class="field">
               <label>Data de referenciação <span style="font-weight:400;color:var(--muted);">— opcional</span></label>
-              <input type="date" id="avalDataReferenciacao">
+              <input type="text" id="avalDataReferenciacao" placeholder="DD/MM/AAAA" maxlength="10" inputmode="numeric">
             </div>
           </div>
         </div>
@@ -394,6 +394,28 @@ function formatDatePT(iso) {
 }
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+// Converte texto "DD/MM/AAAA" para ISO "AAAA-MM-DD". Devolve null se inválido (incl. datas como 31/02).
+function parseDataPT(str) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((str || "").trim());
+  if (!m) return null;
+  const [, dd, mm, yyyy] = m;
+  const d = Number(dd), mo = Number(mm);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const iso = `${yyyy}-${mm}-${dd}`;
+  const dt = parseISO(iso);
+  if (dt.getFullYear() !== Number(yyyy) || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return null;
+  return iso;
+}
+// Aplica auto-formatação DD/MM/AAAA enquanto o utilizador escreve num input de texto.
+function ativarMascaraData(el) {
+  el.addEventListener("input", () => {
+    let v = el.value.replace(/\D/g, "").slice(0, 8);
+    if (v.length > 4) v = `${v.slice(0,2)}/${v.slice(2,4)}/${v.slice(4)}`;
+    else if (v.length > 2) v = `${v.slice(0,2)}/${v.slice(2)}`;
+    el.value = v;
+  });
 }
 
 /* ======================= LÓGICA DE DOMÍNIO ======================= */
@@ -891,7 +913,7 @@ function renderFormAvaliacao(preselectDoenteId, preselectAcessoId) {
   fillSelect(sel, doentes.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => ({ value: d.id, label: d.nome })), "— escolher doente —");
   if (preselectDoenteId) sel.value = preselectDoenteId;
   populateAvalAcessoSelect(sel.value, preselectAcessoId);
-  document.getElementById("avalData").value = todayISO();
+  document.getElementById("avalData").value = formatDatePT(todayISO());
 }
 
 document.getElementById("formAvaliacao").addEventListener("submit", e => {
@@ -925,10 +947,20 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
     recirculacao: recircVal !== "" ? Number(recircVal) : null,
     qb: qbVal !== "" ? Number(qbVal) : null,
     referenciacaoTexto: document.getElementById("avalReferenciacaoTexto").value.trim(),
-    medicoInformado: document.querySelector('input[name=avalMedicoInformado]:checked').value === "sim",
-    dataReferenciacao: document.getElementById("avalDataReferenciacao").value || null
+    medicoInformado: document.querySelector('input[name=avalMedicoInformado]:checked').value === "sim"
   };
-  const data = document.getElementById("avalData").value;
+
+  const data = parseDataPT(document.getElementById("avalData").value);
+  if (!data) { toast("Data da avaliação inválida. Use o formato DD/MM/AAAA.", true); return; }
+
+  const dataReferenciacaoRaw = document.getElementById("avalDataReferenciacao").value.trim();
+  if (dataReferenciacaoRaw) {
+    dados.dataReferenciacao = parseDataPT(dataReferenciacaoRaw);
+    if (!dados.dataReferenciacao) { toast("Data de referenciação inválida. Use o formato DD/MM/AAAA.", true); return; }
+  } else {
+    dados.dataReferenciacao = null;
+  }
+
   const anterior = getAvaliacaoAnterior(acessoId, data, editingAvalId);
   const { alarme, motivos } = computeAlarme(acesso.tipoAcesso, dados, anterior ? anterior.qa : null);
 
@@ -968,7 +1000,7 @@ document.querySelectorAll('input[name=avalAneurisma]').forEach(r => r.addEventLi
 function resetFormAvaliacao() {
   editingAvalId = null;
   document.getElementById("formAvaliacao").reset();
-  document.getElementById("avalData").value = todayISO();
+  document.getElementById("avalData").value = formatDatePT(todayISO());
   document.querySelectorAll('input[name=avalInflamatoriosTipo]').forEach(cb => cb.checked = false);
   document.getElementById("avalAneurismaTipo").value = "";
   document.getElementById("avalRecirculacao").value = "";
@@ -988,7 +1020,7 @@ function editAvaliacao(id) {
   editingAvalId = id;
   document.getElementById("avalDoente").value = a.doenteId;
   populateAvalAcessoSelect(a.doenteId, a.acessoId);
-  document.getElementById("avalData").value = a.data;
+  document.getElementById("avalData").value = formatDatePT(a.data);
   document.querySelector(`input[name=avalInflamatorios][value=${a.sinaisInflamatorios ? "sim" : "nao"}]`).checked = true;
   updateInflamatoriosVisibility();
   document.querySelectorAll('input[name=avalInflamatoriosTipo]').forEach(cb => cb.checked = (a.sinaisInflamatoriosTipos || []).includes(cb.value));
@@ -1003,7 +1035,7 @@ function editAvaliacao(id) {
   document.getElementById("avalQb").value = a.qb != null ? a.qb : "";
   document.getElementById("avalReferenciacaoTexto").value = a.referenciacaoTexto || "";
   document.querySelector(`input[name=avalMedicoInformado][value=${a.medicoInformado ? "sim" : "nao"}]`).checked = true;
-  document.getElementById("avalDataReferenciacao").value = a.dataReferenciacao || "";
+  document.getElementById("avalDataReferenciacao").value = a.dataReferenciacao ? formatDatePT(a.dataReferenciacao) : "";
   document.getElementById("avalFormTitle").textContent = "Editar Avaliação";
   document.getElementById("avalSubmitBtn").textContent = "Guardar alterações";
   document.getElementById("avalCancelBtn").style.display = "inline-block";
@@ -1109,6 +1141,8 @@ document.getElementById("inflamatoriosTiposGroup").innerHTML = SINAIS_INFLAMATOR
   .map(t => `<label><input type="checkbox" name="avalInflamatoriosTipo" value="${escapeHtml(t)}"> ${escapeHtml(t)}</label>`)
   .join("");
 fillSelect(document.getElementById("avalAneurismaTipo"), ANEURISMA_TIPOS, "— selecionar —");
+ativarMascaraData(document.getElementById("avalData"));
+ativarMascaraData(document.getElementById("avalDataReferenciacao"));
 updateInflamatoriosVisibility();
 updateAneurismaVisibility();
 renderAcessosList();
