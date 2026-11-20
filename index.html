@@ -33,6 +33,11 @@
   nav.tabs button{background:transparent;border:none;color:#e6f4f2;padding:14px 14px;font-size:14px;cursor:pointer;border-bottom:3px solid transparent;transition:.15s;}
   nav.tabs button:hover{background:rgba(255,255,255,.08);}
   nav.tabs button.active{color:#fff;border-bottom-color:#fff;font-weight:600;}
+  .user-area{display:flex;align-items:center;gap:12px;font-size:13px;color:#e6f4f2;padding:8px 0;flex-wrap:wrap;}
+  .user-area button{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px;}
+  .user-area button:hover{background:rgba(255,255,255,.25);}
+  .sync-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#4ade80;margin-right:5px;vertical-align:middle;}
+  .sync-dot.off{background:#fbbf24;}
   main{max-width:1200px;margin:0 auto;padding:20px;}
   .view{display:none;}
   .view.active{display:block;}
@@ -51,7 +56,7 @@
   h3{font-size:15px;color:var(--text);margin-bottom:10px;}
   form .field{margin-bottom:14px;}
   label{display:block;font-size:13px;font-weight:600;margin-bottom:5px;color:var(--text);}
-  input[type=text],input[type=number],input[type=date],select,textarea{
+  input[type=text],input[type=number],input[type=date],input[type=email],input[type=password],select,textarea{
     width:100%;padding:9px 10px;border:1px solid var(--border);border-radius:6px;font-size:14px;background:#fff;color:var(--text);
   }
   input:focus,select:focus{outline:none;border-color:var(--primary);}
@@ -60,6 +65,7 @@
   .radio-group input{width:auto;}
   button.btn{background:var(--primary);color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600;}
   button.btn:hover{background:var(--primary-dark);}
+  button.btn:disabled{opacity:.6;cursor:default;}
   button.btn.secondary{background:#fff;color:var(--primary);border:1px solid var(--primary);}
   button.btn.secondary:hover{background:var(--primary-light);}
   button.btn.danger{background:var(--danger);}
@@ -93,10 +99,42 @@
   .acesso-adder .maturacao-field{display:flex;align-items:center;gap:6px;font-size:14px;height:38px;white-space:nowrap;font-weight:400;}
   .table-scroll{overflow-x:auto;}
   .sub-detalhe{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);}
+  /* Ecrã de login */
+  .login-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;}
+  .login-card{width:100%;max-width:380px;}
+  .login-card h2{text-align:center;}
+  .login-erro{color:var(--danger);font-size:13px;min-height:18px;margin:10px 0 0;}
+  .check-inline{display:flex;align-items:center;gap:6px;font-weight:400;font-size:13px;}
+  .check-inline input{width:auto;}
 </style>
 </head>
 <body>
 
+<!-- ECRÃ DE CARREGAMENTO -->
+<div id="loadingScreen" class="login-screen">
+  <div class="card login-card" style="text-align:center;color:var(--muted);">A carregar…</div>
+</div>
+
+<!-- ECRÃ DE LOGIN -->
+<div id="loginScreen" class="login-screen" style="display:none;">
+  <form id="loginForm" class="card login-card">
+    <h2>Avaliação de Qa · Acessos Vasculares</h2>
+    <p class="subtitle" style="text-align:center;margin-top:0;">Acesso restrito. Inicie sessão para continuar.</p>
+    <input type="hidden" id="loginEmail" autocomplete="username">
+    <div class="field">
+      <label for="loginPassword">Palavra-passe</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required>
+    </div>
+    <div class="field">
+      <label class="check-inline"><input type="checkbox" id="loginLembrar" checked> Manter sessão iniciada neste dispositivo</label>
+    </div>
+    <button class="btn" type="submit" id="loginBtn" style="width:100%;">Entrar</button>
+    <p id="loginErro" class="login-erro"></p>
+  </form>
+</div>
+
+<!-- APLICAÇÃO -->
+<div id="appShell" style="display:none;">
 <header class="topbar">
   <h1>Avaliação de Qa · Acessos Vasculares</h1>
   <nav class="tabs" id="mainNav">
@@ -107,6 +145,11 @@
     <button data-view="prioridades">Prioridades</button>
     <button data-view="relatorios">Relatórios</button>
   </nav>
+  <div class="user-area">
+    <span id="syncStatus"><span class="sync-dot"></span>Online</span>
+    <span id="userEmail"></span>
+    <button type="button" id="logoutBtn">Sair</button>
+  </div>
 </header>
 
 <main id="app">
@@ -319,8 +362,33 @@
   </section>
 
 </main>
+</div>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import {
+  getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut,
+  setPersistence, browserLocalPersistence, browserSessionPersistence
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import {
+  initializeFirestore, collection, doc, onSnapshot, writeBatch
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+/* ======================= FIREBASE — colar aqui a configuração do projeto ======================= */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAkY6f1Akuux6DAnJOzgG-3ClPuSPfQ0gA",
+  authDomain: "acesso-vascular.firebaseapp.com",
+  projectId: "acesso-vascular",
+  storageBucket: "acesso-vascular.firebasestorage.app",
+  messagingSenderId: "460566058636",
+  appId: "1:460566058636:web:2653f9d69506bdc591cda9"
+};
+/* ================================================================================================ */
+
+// Conta única da equipa: o email fica fixo aqui e a página só pede a palavra-passe.
+// Tem de existir em Firebase → Authentication → Users com este mesmo email.
+const LOGIN_EMAIL = "equipa@acesso-vascular.app";
+
 /* ======================= CONFIGURAÇÃO — editar aqui ======================= */
 const TURNOS = ["Ímpar Manhã", "Ímpar Tarde", "Ímpar Noite", "Par Manhã", "Par Tarde", "Par Noite"];
 const MEDICOS = ["Dr. Nuno Rosa", "Dr. Pedro Vieira", "Dra. A. Carlota Vida"];
@@ -328,8 +396,13 @@ const SINAIS_INFLAMATORIOS_TIPOS = ["Rubor", "Calor", "Dor", "Edema", "Exsudado 
 const ANEURISMA_TIPOS = ["Estádio 0", "Estádio 1", "Estádio 2", "Estádio 3"];
 /* =========================================================================== */
 
+// Chaves da versão antiga (dados guardados só no browser) — usadas apenas para migrar para a nuvem
 const STORAGE_PATIENTS = "qa_app_doentes";
 const STORAGE_ASSESSMENTS = "qa_app_avaliacoes";
+const STORAGE_MIGRADO = "qa_app_migrado_nuvem";
+
+const COL_DOENTES = "doentes";
+const COL_AVALIACOES = "avaliacoes";
 
 const MOTIVO_LABEL = {
   inflamatorios: "Sinais inflamatórios",
@@ -340,37 +413,247 @@ const MOTIVO_LABEL = {
   decrescimo: "Decréscimo ≥25% face à avaliação anterior"
 };
 
-let doentes = loadData(STORAGE_PATIENTS, []);
-let avaliacoes = loadData(STORAGE_ASSESSMENTS, []);
+let doentes = [];
+let avaliacoes = [];
 let editingDoenteId = null;
 let editingAvalId = null;
 let formAcessos = [];
+let currentView = "dashboard";
 const charts = {};
 
-function loadData(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (e) { return fallback; }
+/* ======================= FIREBASE: LIGAÇÃO E SINCRONIZAÇÃO ======================= */
+
+const configEmFalta = Object.values(FIREBASE_CONFIG).some(v => !v || v === "COLAR_AQUI");
+let auth = null, db = null;
+if (!configEmFalta) {
+  const fbApp = initializeApp(FIREBASE_CONFIG);
+  auth = getAuth(fbApp);
+  // Sem cache persistente: os dados clínicos não ficam gravados no dispositivo depois de fechar a página.
+  db = initializeFirestore(fbApp, { ignoreUndefinedProperties: true });
 }
-function saveDoentes() { localStorage.setItem(STORAGE_PATIENTS, JSON.stringify(doentes)); }
-function saveAvaliacoes() { localStorage.setItem(STORAGE_ASSESSMENTS, JSON.stringify(avaliacoes)); }
+
+// Estado já sincronizado com a base de dados (id -> JSON estável), para só enviar o que mudou.
+const synced = { [COL_DOENTES]: new Map(), [COL_AVALIACOES]: new Map() };
+let unsubs = [];
+let carregado = { [COL_DOENTES]: false, [COL_AVALIACOES]: false };
+let appVisivel = false;
+
+function stableStringify(v) {
+  if (v === null || v === undefined || typeof v !== "object") return JSON.stringify(v === undefined ? null : v);
+  if (Array.isArray(v)) return "[" + v.map(stableStringify).join(",") + "]";
+  return "{" + Object.keys(v).filter(k => v[k] !== undefined).sort()
+    .map(k => JSON.stringify(k) + ":" + stableStringify(v[k])).join(",") + "}";
+}
+
+function syncColecao(nome, arr) {
+  const mapa = synced[nome];
+  const ops = [];
+  const ids = new Set();
+  arr.forEach(item => {
+    ids.add(item.id);
+    const s = stableStringify(item);
+    if (mapa.get(item.id) !== s) { ops.push({ tipo: "set", id: item.id, item }); mapa.set(item.id, s); }
+  });
+  [...mapa.keys()].forEach(id => {
+    if (!ids.has(id)) { ops.push({ tipo: "del", id }); mapa.delete(id); }
+  });
+  if (ops.length) commitOps(nome, ops);
+}
+
+async function commitOps(nome, ops) {
+  for (let i = 0; i < ops.length; i += 450) {
+    const batch = writeBatch(db);
+    ops.slice(i, i + 450).forEach(op => {
+      const ref = doc(db, nome, op.id);
+      if (op.tipo === "set") batch.set(ref, op.item);
+      else batch.delete(ref);
+    });
+    try { await batch.commit(); }
+    catch (e) {
+      console.error(e);
+      toast("Erro ao guardar na base de dados: " + (e.code || e.message), true);
+    }
+  }
+}
+
+function saveDoentes() { syncColecao(COL_DOENTES, doentes); }
+function saveAvaliacoes() { syncColecao(COL_AVALIACOES, avaliacoes); }
+
+function iniciarSync() {
+  [COL_DOENTES, COL_AVALIACOES].forEach(nome => {
+    const unsub = onSnapshot(collection(db, nome), snap => {
+      const arr = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      synced[nome] = new Map(arr.map(x => [x.id, stableStringify(x)]));
+      if (nome === COL_DOENTES) doentes = arr; else avaliacoes = arr;
+      if (!carregado[nome]) {
+        carregado[nome] = true;
+        if (carregado[COL_DOENTES] && carregado[COL_AVALIACOES]) aoCarregarPelaPrimeiraVez();
+      } else {
+        refreshView();
+      }
+    }, err => {
+      console.error(err);
+      if (err.code === "permission-denied") {
+        toast("Esta conta não tem permissão para aceder aos dados.", true);
+        signOut(auth);
+      } else {
+        toast("Erro de ligação à base de dados: " + err.code, true);
+      }
+    });
+    unsubs.push(unsub);
+  });
+}
+
+function pararSync() {
+  unsubs.forEach(u => u());
+  unsubs = [];
+  doentes = []; avaliacoes = [];
+  synced[COL_DOENTES] = new Map(); synced[COL_AVALIACOES] = new Map();
+  carregado = { [COL_DOENTES]: false, [COL_AVALIACOES]: false };
+  appVisivel = false;
+}
+
+function aoCarregarPelaPrimeiraVez() {
+  // Normaliza registos antigos (um só acesso por doente) que existam na nuvem
+  const r = migrarParaMultiAcesso(doentes, avaliacoes);
+  if (r.alterado) { doentes = r.doentes; saveDoentes(); saveAvaliacoes(); }
+
+  mostrarEcra("app");
+  appVisivel = true;
+  switchView("dashboard");
+  migrarDadosLocais();
+}
+
+function refreshView() {
+  if (!appVisivel) return;
+  if (currentView === "dashboard") renderDashboard();
+  else if (currentView === "doentes") renderDoentes();
+  else if (currentView === "ficha") {
+    const id = document.getElementById("fichaSelect").value;
+    populateFichaSelect(id);
+    renderFichaConteudo(id);
+  }
+  else if (currentView === "prioridades") renderPrioridades();
+  // "Nova Avaliação" não é redesenhada para não apagar um formulário a meio do preenchimento.
+}
+
+// Envia para a nuvem os dados que estavam guardados só neste browser (versão antiga da página).
+function migrarDadosLocais() {
+  let locD = [], locA = [];
+  try {
+    if (localStorage.getItem(STORAGE_MIGRADO)) return;
+    locD = JSON.parse(localStorage.getItem(STORAGE_PATIENTS) || "[]");
+    locA = JSON.parse(localStorage.getItem(STORAGE_ASSESSMENTS) || "[]");
+  } catch (e) { return; }
+  if (!locD.length && !locA.length) return;
+
+  locD = migrarParaMultiAcesso(locD, locA).doentes;
+  const idsD = new Set(doentes.map(d => d.id));
+  const idsA = new Set(avaliacoes.map(a => a.id));
+  const novosD = locD.filter(d => !idsD.has(d.id));
+  const novosA = locA.filter(a => !idsA.has(a.id));
+  if (!novosD.length && !novosA.length) {
+    try { localStorage.setItem(STORAGE_MIGRADO, "1"); } catch (e) {}
+    return;
+  }
+  const ok = confirm(
+    `Este computador tem dados guardados apenas localmente: ${novosD.length} doente(s) e ${novosA.length} avaliação(ões) que ainda não estão na base de dados partilhada.\n\n` +
+    `Enviar agora para a base de dados partilhada, para ficarem disponíveis nos outros dispositivos?`
+  );
+  if (!ok) return;
+  doentes = doentes.concat(novosD);
+  avaliacoes = avaliacoes.concat(novosA);
+  saveDoentes(); saveAvaliacoes();
+  try { localStorage.setItem(STORAGE_MIGRADO, "1"); } catch (e) {}
+  toast("Dados deste computador enviados para a base de dados partilhada.");
+  refreshView();
+}
+
+/* ======================= LOGIN / ECRÃS ======================= */
+
+function mostrarEcra(qual) {
+  document.getElementById("loadingScreen").style.display = qual === "loading" ? "flex" : "none";
+  document.getElementById("loginScreen").style.display = qual === "login" ? "flex" : "none";
+  document.getElementById("appShell").style.display = qual === "app" ? "block" : "none";
+}
+
+const MSG_ERRO_LOGIN = {
+  "auth/invalid-credential": "Palavra-passe incorreta.",
+  "auth/invalid-email": "Email inválido.",
+  "auth/user-disabled": "Esta conta foi desativada.",
+  "auth/too-many-requests": "Demasiadas tentativas. Aguarde alguns minutos e tente de novo.",
+  "auth/network-request-failed": "Sem ligação à internet."
+};
+
+document.getElementById("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const erroEl = document.getElementById("loginErro");
+  const btn = document.getElementById("loginBtn");
+  erroEl.textContent = "";
+  if (configEmFalta) { erroEl.textContent = "A configuração do Firebase ainda não foi colada no ficheiro."; return; }
+  btn.disabled = true; btn.textContent = "A entrar…";
+  try {
+    const lembrar = document.getElementById("loginLembrar").checked;
+    await setPersistence(auth, lembrar ? browserLocalPersistence : browserSessionPersistence);
+    await signInWithEmailAndPassword(auth,
+      LOGIN_EMAIL,
+      document.getElementById("loginPassword").value);
+    document.getElementById("loginPassword").value = "";
+  } catch (err) {
+    erroEl.textContent = MSG_ERRO_LOGIN[err.code] || ("Não foi possível entrar (" + (err.code || err.message) + ").");
+  } finally {
+    btn.disabled = false; btn.textContent = "Entrar";
+  }
+});
+
+document.getElementById("logoutBtn").addEventListener("click", () => {
+  if (confirm("Terminar sessão?")) signOut(auth);
+});
+
+if (configEmFalta) {
+  mostrarEcra("login");
+  document.getElementById("loginErro").textContent = "A configuração do Firebase ainda não foi colada no ficheiro.";
+} else {
+  onAuthStateChanged(auth, user => {
+    pararSync();
+    if (user) {
+      document.getElementById("userEmail").textContent = "";
+      mostrarEcra("loading");
+      iniciarSync();
+    } else {
+      document.getElementById("userEmail").textContent = "";
+      resetFormDoente();
+      mostrarEcra("login");
+    }
+  });
+}
+
+function atualizarEstadoLigacao() {
+  const el = document.getElementById("syncStatus");
+  el.innerHTML = navigator.onLine
+    ? `<span class="sync-dot"></span>Online`
+    : `<span class="sync-dot off"></span>Sem ligação — alterações enviadas quando voltar`;
+}
+window.addEventListener("online", atualizarEstadoLigacao);
+window.addEventListener("offline", atualizarEstadoLigacao);
+atualizarEstadoLigacao();
+
+/* ======================= UTILITÁRIOS ======================= */
 
 // Doentes criados antes de existir suporte a múltiplos acessos tinham tipoAcesso/localizacao
-// diretamente no doente. Migra esses registos para doente.acessos = [ {...} ] uma única vez.
-function migrarParaMultiAcesso() {
+// diretamente no doente. Converte esses registos para doente.acessos = [ {...} ].
+function migrarParaMultiAcesso(listaDoentes, listaAvaliacoes) {
   let alterado = false;
-  doentes = doentes.map(d => {
+  const novos = listaDoentes.map(d => {
     if (d.acessos) return d;
     alterado = true;
     const acessoId = uid();
-    avaliacoes.forEach(a => { if (a.doenteId === d.id && !a.acessoId) a.acessoId = acessoId; });
+    listaAvaliacoes.forEach(a => { if (a.doenteId === d.id && !a.acessoId) a.acessoId = acessoId; });
     const { tipoAcesso, localizacao, ...resto } = d;
     return { ...resto, acessos: [{ id: acessoId, tipoAcesso, localizacao, criadoEm: d.criadoEm }] };
   });
-  if (alterado) { saveDoentes(); saveAvaliacoes(); }
+  return { doentes: novos, alterado };
 }
-migrarParaMultiAcesso();
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
 
@@ -483,6 +766,7 @@ document.getElementById("mainNav").addEventListener("click", e => {
 });
 
 function switchView(name, opts) {
+  currentView = name;
   document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
   document.getElementById("view-" + name).classList.add("active");
   document.querySelectorAll("#mainNav button").forEach(b => b.classList.toggle("active", b.dataset.view === name));
@@ -521,7 +805,7 @@ function fillSelect(select, options, placeholder) {
 function renderDashboard() {
   const totalDoentes = doentes.length;
   const totalAvaliacoes = avaliacoes.length;
-  const todosAcessos = doentes.flatMap(d => d.acessos);
+  const todosAcessos = doentes.flatMap(d => d.acessos || []);
 
   const estados = todosAcessos.map(a => {
     const u = getUltimaAvaliacaoAcesso(a.id);
@@ -574,8 +858,9 @@ function renderDashboard() {
 
 function renderChart(canvasId, type, data, extraOptions) {
   if (charts[canvasId]) charts[canvasId].destroy();
-  const ctx = document.getElementById(canvasId).getContext("2d");
-  charts[canvasId] = new Chart(ctx, {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  charts[canvasId] = new Chart(el.getContext("2d"), {
     type, data,
     options: Object.assign({ responsive: true, maintainAspectRatio: true }, extraOptions || {})
   });
@@ -632,15 +917,16 @@ document.getElementById("addAcessoBtn").addEventListener("click", () => {
 document.getElementById("formDoente").addEventListener("submit", e => {
   e.preventDefault();
   if (!formAcessos.length) { toast("Adicione pelo menos um acesso vascular.", true); return; }
+  const existente = editingDoenteId ? doentes.find(d => d.id === editingDoenteId) : null;
   const doente = {
     id: editingDoenteId || uid(),
     nome: document.getElementById("doenteNome").value.trim(),
     turno: document.getElementById("doenteTurno").value,
     medico: document.getElementById("doenteMedico").value,
-    criadoEm: editingDoenteId ? doentes.find(d => d.id === editingDoenteId).criadoEm : todayISO(),
+    criadoEm: existente ? existente.criadoEm : todayISO(),
     acessos: formAcessos.map(a => ({ ...a }))
   };
-  if (editingDoenteId) {
+  if (editingDoenteId && existente) {
     const idsAtuais = new Set(doente.acessos.map(a => a.id));
     avaliacoes = avaliacoes.filter(a => a.doenteId !== editingDoenteId || idsAtuais.has(a.acessoId));
     doentes = doentes.map(d => d.id === editingDoenteId ? doente : d);
@@ -964,15 +1250,16 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
   const anterior = getAvaliacaoAnterior(acessoId, data, editingAvalId);
   const { alarme, motivos } = computeAlarme(acesso.tipoAcesso, dados, anterior ? anterior.qa : null);
 
+  const existente = editingAvalId ? avaliacoes.find(a => a.id === editingAvalId) : null;
   const avaliacao = {
     id: editingAvalId || uid(),
     doenteId, acessoId, data,
     ...dados,
     alarme, motivos,
-    criadoEm: editingAvalId ? avaliacoes.find(a => a.id === editingAvalId).criadoEm : Date.now()
+    criadoEm: existente ? existente.criadoEm : Date.now()
   };
 
-  if (editingAvalId) {
+  if (editingAvalId && existente) {
     avaliacoes = avaliacoes.map(a => a.id === editingAvalId ? avaliacao : a);
     toast(alarme ? "Avaliação atualizada — ALARME." : "Avaliação atualizada — sem alarme.", alarme);
   } else {
@@ -1124,7 +1411,7 @@ document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
       "Taxa de Recirculação (%)": a.recirculacao != null ? a.recirculacao : "",
       "Qb da Recirculação (ml/min)": a.qb != null ? a.qb : "",
       Alarme: a.alarme ? "Sim" : "Não",
-      "Motivos do Alarme": a.motivos.map(m => MOTIVO_LABEL[m]).join("; "),
+      "Motivos do Alarme": (a.motivos || []).map(m => MOTIVO_LABEL[m]).join("; "),
       "Referenciação": a.referenciacaoTexto || "",
       "Médico Informado": a.medicoInformado ? "Sim" : "Não",
       "Data de Referenciação": a.dataReferenciacao || ""
@@ -1146,7 +1433,6 @@ ativarMascaraData(document.getElementById("avalDataReferenciacao"));
 updateInflamatoriosVisibility();
 updateAneurismaVisibility();
 renderAcessosList();
-renderDashboard();
 </script>
 </body>
 </html>
