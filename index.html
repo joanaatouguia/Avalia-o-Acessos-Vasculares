@@ -260,7 +260,14 @@
             <input type="text" id="avalData" placeholder="DD/MM/AAAA" maxlength="10" inputmode="numeric" required>
           </div>
         </div>
-        <div class="grid cols-2">
+        <div class="field">
+          <label>Tipo de registo</label>
+          <div class="radio-group">
+            <label><input type="radio" name="avalTipoRegisto" value="completa" checked> Avaliação completa (exame físico + Qa)</label>
+            <label><input type="radio" name="avalTipoRegisto" value="medicoes"> Só Qa / Qb / Recirculação</label>
+          </div>
+        </div>
+        <div class="grid cols-2" id="blocoClinico">
           <div class="field">
             <label>Sinais inflamatórios / infeção</label>
             <div class="radio-group">
@@ -305,17 +312,23 @@
               <label><input type="radio" name="avalColaterais" value="nao" checked> Não</label>
             </div>
           </div>
-          <div class="field">
-            <label>Qa (ml/min)</label>
-            <input type="number" id="avalQa" min="0" step="1" required>
-          </div>
-          <div class="field">
-            <label>Taxa de Recirculação (%) <span style="font-weight:400;color:var(--muted);">— opcional</span></label>
-            <input type="number" id="avalRecirculacao" min="0" step="0.1">
-          </div>
-          <div class="field">
-            <label>Qb da Recirculação (ml/min) <span style="font-weight:400;color:var(--muted);">— opcional</span></label>
-            <input type="number" id="avalQb" min="0" step="1">
+        </div>
+        <div class="card" style="margin:6px 0 0;padding:14px 16px;background:#f8fafc;">
+          <h3 style="margin-bottom:4px;">Medições</h3>
+          <p class="subtitle" id="medicoesAjuda" style="margin:0 0 10px;">Qa obrigatório; Qb e recirculação opcionais.</p>
+          <div class="grid cols-3">
+            <div class="field">
+              <label>Qa (ml/min) <span id="qaOpcional" style="font-weight:400;color:var(--muted);display:none;">— opcional</span></label>
+              <input type="number" id="avalQa" min="0" step="1" required>
+            </div>
+            <div class="field">
+              <label>Qb (ml/min) <span style="font-weight:400;color:var(--muted);">— opcional</span></label>
+              <input type="number" id="avalQb" min="0" step="1">
+            </div>
+            <div class="field">
+              <label>Taxa de Recirculação (%) <span style="font-weight:400;color:var(--muted);">— opcional</span></label>
+              <input type="number" id="avalRecirculacao" min="0" step="0.1">
+            </div>
           </div>
         </div>
         <div class="card" style="margin:14px 0 0;padding:14px 16px;background:#f8fafc;">
@@ -756,13 +769,16 @@ function getAvaliacoesAcesso(acessoId) {
     .filter(a => a.acessoId === acessoId)
     .sort((a,b) => a.data.localeCompare(b.data) || a.criadoEm - b.criadoEm);
 }
+// Última avaliação COM valor de Qa (é a que define o estado e a periodicidade).
+// Registos só de recirculação, sem Qa, aparecem no histórico mas não mudam o estado.
 function getUltimaAvaliacaoAcesso(acessoId) {
-  const lista = getAvaliacoesAcesso(acessoId);
+  const lista = getAvaliacoesAcesso(acessoId).filter(a => a.qa != null);
   return lista.length ? lista[lista.length - 1] : null;
 }
+function isSoMedicoes(a) { return a.tipoRegisto === "medicoes"; }
 // Última avaliação estritamente anterior a uma data dada (para calcular decréscimo e evitar comparar consigo própria ao editar)
 function getAvaliacaoAnterior(acessoId, data, excludeId) {
-  const lista = getAvaliacoesAcesso(acessoId).filter(a => a.id !== excludeId);
+  const lista = getAvaliacoesAcesso(acessoId).filter(a => a.id !== excludeId && a.qa != null);
   const anteriores = lista.filter(a => a.data < data || (a.data === data && a.id < (excludeId || "")));
   return anteriores.length ? anteriores[anteriores.length - 1] : null;
 }
@@ -773,9 +789,9 @@ function computeAlarme(tipoAcesso, dados, qaAnterior) {
   if (dados.aneurisma) motivos.push("aneurisma");
   if (dados.sopro === "descontinuo") motivos.push("sopro");
   if (dados.fremito === "hipopulsatil") motivos.push("fremito");
-  if (tipoAcesso === "FAV" && dados.qa < 400) motivos.push("qaBaixo");
-  if (tipoAcesso === "EAV" && dados.qa < 600) motivos.push("qaBaixo");
-  if (qaAnterior != null && qaAnterior > 0) {
+  if (dados.qa != null && tipoAcesso === "FAV" && dados.qa < 400) motivos.push("qaBaixo");
+  if (dados.qa != null && tipoAcesso === "EAV" && dados.qa < 600) motivos.push("qaBaixo");
+  if (dados.qa != null && qaAnterior != null && qaAnterior > 0) {
     const decrescimo = (qaAnterior - dados.qa) / qaAnterior;
     if (decrescimo >= 0.25) motivos.push("decrescimo");
   }
@@ -1115,8 +1131,8 @@ function renderFichaConteudo(doenteId) {
   d.acessos.forEach(acesso => {
     const btn = document.getElementById(`btnNovaAval-${acesso.id}`);
     if (btn) btn.addEventListener("click", () => switchView("avaliacao", { doenteId: d.id, acessoId: acesso.id }));
-    const historico = getAvaliacoesAcesso(acesso.id);
-    if (historico.length) {
+    const historico = getAvaliacoesAcesso(acesso.id).filter(a => a.qa != null);
+    if (historico.length && document.getElementById(`chartQa-${acesso.id}`)) {
       renderChart(`chartQa-${acesso.id}`, "line", {
         labels: historico.map(a => formatDatePT(a.data)),
         datasets: [{
@@ -1172,7 +1188,8 @@ function renderAcessoSection(acesso) {
         ${acesso.tipoAcesso !== "CVC" ? `<button class="btn" id="btnNovaAval-${acesso.id}">+ Nova Avaliação</button>` : ""}
       </div>
       <p class="subtitle" style="margin-top:8px;">Próxima avaliação: ${proximaHtml}</p>
-      ${historicoDesc.length ? `<canvas id="chartQa-${acesso.id}"></canvas>` : `<div class="empty">Sem avaliações registadas para este acesso.</div>`}
+      ${historicoDesc.some(a => a.qa != null) ? `<canvas id="chartQa-${acesso.id}"></canvas>` : ""}
+      ${historicoDesc.length ? "" : `<div class="empty">Sem avaliações registadas para este acesso.</div>`}
       ${historicoDesc.length ? `<div class="table-scroll">${renderHistoricoTable(historicoDesc)}</div>` : ""}
     </div>
   `;
@@ -1180,7 +1197,8 @@ function renderAcessoSection(acesso) {
 
 function renderHistoricoTable(historicoDesc) {
   const rows = historicoDesc.map((a, idx) => {
-    const anteriorNaLista = historicoDesc[idx + 1]; // historicoDesc está do mais recente para o mais antigo
+    // historicoDesc está do mais recente para o mais antigo; compara com o Qa anterior que exista
+    const anteriorNaLista = a.qa != null ? historicoDesc.slice(idx + 1).find(x => x.qa != null) : null;
     let variacao = "—";
     if (anteriorNaLista) {
       const pct = ((a.qa - anteriorNaLista.qa) / anteriorNaLista.qa) * 100;
@@ -1190,23 +1208,26 @@ function renderHistoricoTable(historicoDesc) {
     const motivos = a.alarme ? `<ul class="motivos-list">${a.motivos.map(m => `<li>${MOTIVO_LABEL[m]}</li>`).join("")}</ul>` : "";
     const inflTxt = a.sinaisInflamatorios ? `Sim${(a.sinaisInflamatoriosTipos && a.sinaisInflamatoriosTipos.length) ? " (" + a.sinaisInflamatoriosTipos.join(", ") + ")" : ""}` : "Não";
     const aneurismaTxt = a.aneurisma ? `Sim${a.aneurismaTipo ? " (" + a.aneurismaTipo + ")" : ""}` : "Não";
-    const recircTxt = a.recirculacao != null ? `${a.recirculacao}%${a.qb != null ? ` (Qb ${a.qb} ml/min)` : ""}` : "—";
+    const recircTxt = a.recirculacao != null ? `${a.recirculacao}%` : "—";
+    const soMed = isSoMedicoes(a);
+    const traco = `<span style="color:var(--muted);">—</span>`;
     const temRef = a.referenciacaoTexto || a.medicoInformado || a.dataReferenciacao;
-    const refRow = temRef ? `<tr><td colspan="11" style="background:#f8fafc;">
+    const refRow = temRef ? `<tr><td colspan="12" style="background:#f8fafc;">
         <strong>Referenciação:</strong>
         ${a.medicoInformado ? `<span class="badge ok">Médico informado${a.dataReferenciacao ? " em " + formatDatePT(a.dataReferenciacao) : ""}</span>` : `<span class="badge muted">Médico não informado</span>`}
         ${a.referenciacaoTexto ? `<div style="margin-top:4px;">${escapeHtml(a.referenciacaoTexto)}</div>` : ""}
       </td></tr>` : "";
     return `<tr>
-      <td>${formatDatePT(a.data)}</td>
-      <td>${a.qa} ml/min</td>
+      <td>${formatDatePT(a.data)}${soMed ? `<br><span class="badge muted">Só medições</span>` : ""}</td>
+      <td>${a.qa != null ? `${a.qa} ml/min` : traco}</td>
       <td>${variacao}</td>
+      <td>${a.qb != null ? `${a.qb} ml/min` : traco}</td>
       <td>${recircTxt}</td>
-      <td>${inflTxt}</td>
-      <td>${aneurismaTxt}</td>
-      <td>${a.sopro === "descontinuo" ? "Descontínuo" : "Contínuo"}</td>
-      <td>${a.fremito}</td>
-      <td>${a.veiasColaterais ? "Sim" : "Não"}</td>
+      <td>${soMed ? traco : inflTxt}</td>
+      <td>${soMed ? traco : aneurismaTxt}</td>
+      <td>${soMed ? traco : (a.sopro === "descontinuo" ? "Descontínuo" : "Contínuo")}</td>
+      <td>${soMed ? traco : a.fremito}</td>
+      <td>${soMed ? traco : (a.veiasColaterais ? "Sim" : "Não")}</td>
       <td>${badge}${motivos}</td>
       <td class="row-actions">
         <button class="link" data-action="edit-aval" data-id="${a.id}">Editar</button>
@@ -1215,7 +1236,7 @@ function renderHistoricoTable(historicoDesc) {
     </tr>${refRow}`;
   }).join("");
   return `<table>
-    <thead><tr><th>Data</th><th>Qa</th><th>Variação</th><th>Recirculação</th><th>Sinais Inflam.</th><th>Aneurisma</th><th>Sopro</th><th>Frémito</th><th>Colaterais</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Data</th><th>Qa</th><th>Variação</th><th>Qb</th><th>Recirculação</th><th>Sinais Inflam.</th><th>Aneurisma</th><th>Sopro</th><th>Frémito</th><th>Colaterais</th><th>Estado</th><th></th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -1261,26 +1282,33 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
   const acesso = doente && doente.acessos.find(a => a.id === acessoId);
   if (!doente || !acesso) { toast("Selecione o doente e o acesso vascular.", true); return; }
 
-  const inflamatoriosSim = document.querySelector('input[name=avalInflamatorios]:checked').value === "sim";
+  const tipoRegisto = tipoRegistoAtual();
+  const soMed = tipoRegisto === "medicoes";
+
+  const inflamatoriosSim = !soMed && document.querySelector('input[name=avalInflamatorios]:checked').value === "sim";
   const inflamatoriosTipos = inflamatoriosSim ? Array.from(document.querySelectorAll('input[name=avalInflamatoriosTipo]:checked')).map(el => el.value) : [];
   if (inflamatoriosSim && !inflamatoriosTipos.length) { toast("Selecione pelo menos um sinal inflamatório.", true); return; }
 
-  const aneurismaSim = document.querySelector('input[name=avalAneurisma]:checked').value === "sim";
+  const aneurismaSim = !soMed && document.querySelector('input[name=avalAneurisma]:checked').value === "sim";
   const aneurismaTipo = aneurismaSim ? document.getElementById("avalAneurismaTipo").value : "";
   if (aneurismaSim && !aneurismaTipo) { toast("Selecione o tipo de aneurisma.", true); return; }
 
+  const qaVal = document.getElementById("avalQa").value;
   const recircVal = document.getElementById("avalRecirculacao").value;
   const qbVal = document.getElementById("avalQb").value;
+  if (!soMed && qaVal === "") { toast("Indique o Qa.", true); return; }
+  if (soMed && qaVal === "" && recircVal === "" && qbVal === "") { toast("Indique pelo menos o Qa, o Qb ou a recirculação.", true); return; }
 
   const dados = {
-    sinaisInflamatorios: inflamatoriosSim,
+    tipoRegisto,
+    sinaisInflamatorios: soMed ? null : inflamatoriosSim,
     sinaisInflamatoriosTipos: inflamatoriosTipos,
-    aneurisma: aneurismaSim,
+    aneurisma: soMed ? null : aneurismaSim,
     aneurismaTipo: aneurismaTipo,
-    sopro: document.querySelector('input[name=avalSopro]:checked').value,
-    fremito: document.getElementById("avalFremito").value,
-    veiasColaterais: document.querySelector('input[name=avalColaterais]:checked').value === "sim",
-    qa: Number(document.getElementById("avalQa").value),
+    sopro: soMed ? null : document.querySelector('input[name=avalSopro]:checked').value,
+    fremito: soMed ? null : document.getElementById("avalFremito").value,
+    veiasColaterais: soMed ? null : document.querySelector('input[name=avalColaterais]:checked').value === "sim",
+    qa: qaVal !== "" ? Number(qaVal) : null,
     recirculacao: recircVal !== "" ? Number(recircVal) : null,
     qb: qbVal !== "" ? Number(qbVal) : null,
     referenciacaoTexto: document.getElementById("avalReferenciacaoTexto").value.trim(),
@@ -1332,6 +1360,20 @@ function updateAneurismaVisibility() {
   const sim = document.querySelector('input[name=avalAneurisma]:checked').value === "sim";
   document.getElementById("aneurismaTipoWrap").style.display = sim ? "block" : "none";
 }
+function tipoRegistoAtual() {
+  const el = document.querySelector('input[name=avalTipoRegisto]:checked');
+  return el ? el.value : "completa";
+}
+function updateTipoRegistoVisibility() {
+  const soMed = tipoRegistoAtual() === "medicoes";
+  document.getElementById("blocoClinico").style.display = soMed ? "none" : "";
+  document.getElementById("avalQa").required = !soMed;
+  document.getElementById("qaOpcional").style.display = soMed ? "inline" : "none";
+  document.getElementById("medicoesAjuda").textContent = soMed
+    ? "Registo só de medições: preencha o que tiver (Qa, Qb e/ou recirculação). Sem exame físico."
+    : "Qa obrigatório; Qb e recirculação opcionais.";
+}
+document.querySelectorAll('input[name=avalTipoRegisto]').forEach(r => r.addEventListener("change", updateTipoRegistoVisibility));
 document.querySelectorAll('input[name=avalInflamatorios]').forEach(r => r.addEventListener("change", updateInflamatoriosVisibility));
 document.querySelectorAll('input[name=avalAneurisma]').forEach(r => r.addEventListener("change", updateAneurismaVisibility));
 
@@ -1347,6 +1389,7 @@ function resetFormAvaliacao() {
   document.getElementById("avalDataReferenciacao").value = "";
   updateInflamatoriosVisibility();
   updateAneurismaVisibility();
+  updateTipoRegistoVisibility();
   document.getElementById("avalFormTitle").textContent = "Nova Avaliação";
   document.getElementById("avalSubmitBtn").textContent = "Guardar Avaliação";
   document.getElementById("avalCancelBtn").style.display = "none";
@@ -1359,15 +1402,17 @@ function editAvaliacao(id) {
   document.getElementById("avalDoente").value = a.doenteId;
   populateAvalAcessoSelect(a.doenteId, a.acessoId);
   document.getElementById("avalData").value = formatDatePT(a.data);
+  document.querySelector(`input[name=avalTipoRegisto][value=${isSoMedicoes(a) ? "medicoes" : "completa"}]`).checked = true;
+  updateTipoRegistoVisibility();
   document.querySelector(`input[name=avalInflamatorios][value=${a.sinaisInflamatorios ? "sim" : "nao"}]`).checked = true;
   updateInflamatoriosVisibility();
   document.querySelectorAll('input[name=avalInflamatoriosTipo]').forEach(cb => cb.checked = (a.sinaisInflamatoriosTipos || []).includes(cb.value));
   document.querySelector(`input[name=avalAneurisma][value=${a.aneurisma ? "sim" : "nao"}]`).checked = true;
   updateAneurismaVisibility();
   document.getElementById("avalAneurismaTipo").value = a.aneurismaTipo || "";
-  document.querySelector(`input[name=avalSopro][value=${a.sopro}]`).checked = true;
-  document.getElementById("avalFremito").value = a.fremito;
-  document.getElementById("avalQa").value = a.qa;
+  document.querySelector(`input[name=avalSopro][value=${a.sopro === "descontinuo" ? "descontinuo" : "continuo"}]`).checked = true;
+  document.getElementById("avalFremito").value = a.fremito || "normopulsatil";
+  document.getElementById("avalQa").value = a.qa != null ? a.qa : "";
   document.querySelector(`input[name=avalColaterais][value=${a.veiasColaterais ? "sim" : "nao"}]`).checked = true;
   document.getElementById("avalRecirculacao").value = a.recirculacao != null ? a.recirculacao : "";
   document.getElementById("avalQb").value = a.qb != null ? a.qb : "";
@@ -1500,16 +1545,18 @@ function linhaExcelAvaliacao(a, comMedico) {
       ID: a.id, Doente: d ? d.nome : "(removido)",
       "Tipo de Acesso": acesso ? acesso.tipoAcesso : "",
       "Localização do Acesso": acesso ? acesso.localizacao : "",
-      Data: a.data, "Sinais Inflamatórios": a.sinaisInflamatorios ? "Sim" : "Não",
+      Data: a.data,
+      "Tipo de Registo": isSoMedicoes(a) ? "Só medições" : "Avaliação completa",
+      "Sinais Inflamatórios": isSoMedicoes(a) ? "" : (a.sinaisInflamatorios ? "Sim" : "Não"),
       "Tipos de Sinais Inflamatórios": (a.sinaisInflamatoriosTipos || []).join("; "),
-      Aneurisma: a.aneurisma ? "Sim" : "Não",
+      Aneurisma: isSoMedicoes(a) ? "" : (a.aneurisma ? "Sim" : "Não"),
       "Estádio do Aneurisma": a.aneurismaTipo || "",
-      Sopro: a.sopro === "descontinuo" ? "Descontínuo" : "Contínuo",
-      Frémito: a.fremito,
-      "Veias Colaterais": a.veiasColaterais ? "Sim" : "Não",
-      "Qa (ml/min)": a.qa,
+      Sopro: isSoMedicoes(a) ? "" : (a.sopro === "descontinuo" ? "Descontínuo" : "Contínuo"),
+      Frémito: a.fremito || "",
+      "Veias Colaterais": isSoMedicoes(a) ? "" : (a.veiasColaterais ? "Sim" : "Não"),
+      "Qa (ml/min)": a.qa != null ? a.qa : "",
+      "Qb (ml/min)": a.qb != null ? a.qb : "",
       "Taxa de Recirculação (%)": a.recirculacao != null ? a.recirculacao : "",
-      "Qb da Recirculação (ml/min)": a.qb != null ? a.qb : "",
       Alarme: a.alarme ? "Sim" : "Não",
       "Motivos do Alarme": (a.motivos || []).map(m => MOTIVO_LABEL[m]).join("; "),
       "Referenciação": a.referenciacaoTexto || "",
@@ -1705,11 +1752,15 @@ document.getElementById("importBtn").addEventListener("click", async () => {
     }
     const data = celulaParaISO(l["Data"]);
     const qa = numOuNull(l["Qa (ml/min)"]);
-    if (!data || qa == null) { semDoente.push(`${l["Doente"]} (data ou Qa em falta)`); return; }
+    const soMed = normTxt(l["Tipo de Registo"]).startsWith("só") || normTxt(l["Tipo de Registo"]).startsWith("so ");
+    const qbImp = numOuNull(l["Qb (ml/min)"] !== undefined ? l["Qb (ml/min)"] : l["Qb da Recirculação (ml/min)"]);
+    const recImp = numOuNull(l["Taxa de Recirculação (%)"]);
+    if (!data || (!soMed && qa == null) || (soMed && qa == null && qbImp == null && recImp == null)) { semDoente.push(`${l["Doente"]} (data ou Qa em falta)`); return; }
     const fremitoTxt = normTxt(l["Frémito"]).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const motivos = lista(l["Motivos do Alarme"]).map(m => labelParaMotivo[normTxt(m)]).filter(Boolean);
     avaliacoes.push({
       id, doenteId: doente.id, acessoId: acesso.id, data,
+      tipoRegisto: soMed ? "medicoes" : "completa",
       sinaisInflamatorios: simNao(l["Sinais Inflamatórios"]),
       sinaisInflamatoriosTipos: lista(l["Tipos de Sinais Inflamatórios"]),
       aneurisma: simNao(l["Aneurisma"]),
@@ -1718,8 +1769,8 @@ document.getElementById("importBtn").addEventListener("click", async () => {
       fremito: fremitos.includes(fremitoTxt) ? fremitoTxt : "normopulsatil",
       veiasColaterais: simNao(l["Veias Colaterais"]),
       qa,
-      recirculacao: numOuNull(l["Taxa de Recirculação (%)"]),
-      qb: numOuNull(l["Qb da Recirculação (ml/min)"]),
+      recirculacao: recImp,
+      qb: qbImp,
       referenciacaoTexto: String(l["Referenciação"] || "").trim(),
       medicoInformado: simNao(l["Médico Informado"]),
       dataReferenciacao: celulaParaISO(l["Data de Referenciação"]),
