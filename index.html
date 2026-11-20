@@ -359,6 +359,13 @@
       <button class="btn" id="exportDoentesBtn">Exportar Doentes (Excel)</button>
       <button class="btn" id="exportAvaliacoesBtn" style="margin-left:10px;">Exportar Avaliações (Excel)</button>
     </div>
+    <div class="card">
+      <h2>Importar Excel</h2>
+      <p class="subtitle">Recupere dados a partir dos ficheiros exportados por esta página (Doentes_….xlsx e Avaliacoes_….xlsx). Pode escolher os dois ficheiros de uma vez. Registos que já existam não são duplicados.</p>
+      <input type="file" id="importFicheiros" accept=".xlsx,.xls" multiple style="margin-bottom:12px;">
+      <div><button class="btn" id="importBtn">Importar</button></div>
+      <p id="importResultado" class="subtitle" style="margin:12px 0 0;"></p>
+    </div>
   </section>
 
 </main>
@@ -1421,6 +1428,145 @@ document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Avaliações");
   XLSX.writeFile(wb, `Avaliacoes_${todayISO()}.xlsx`);
+});
+
+/* ======================= IMPORTAR EXCEL ======================= */
+
+function celulaParaISO(v) {
+  if (v == null || v === "") return null;
+  if (v instanceof Date && !isNaN(v)) return toISO(v);
+  if (typeof v === "number") { // número de série do Excel
+    const d = new Date(Math.round((v - 25569) * 86400000));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,"0")}-${String(d.getUTCDate()).padStart(2,"0")}`;
+  }
+  const t = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  return parseDataPT(t);
+}
+function simNao(v) { return String(v || "").trim().toLowerCase().startsWith("s"); }
+function numOuNull(v) {
+  if (v == null || String(v).trim() === "") return null;
+  const n = Number(String(v).replace(",", "."));
+  return isNaN(n) ? null : n;
+}
+function lista(v) { return String(v || "").split(";").map(x => x.trim()).filter(Boolean); }
+function normTxt(v) { return String(v || "").trim().toLowerCase(); }
+
+function lerFicheiroExcel(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      try { resolve(XLSX.read(new Uint8Array(r.result), { type: "array", cellDates: true })); }
+      catch (e) { reject(e); }
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsArrayBuffer(file);
+  });
+}
+
+document.getElementById("importBtn").addEventListener("click", async () => {
+  const files = Array.from(document.getElementById("importFicheiros").files || []);
+  const out = document.getElementById("importResultado");
+  if (!files.length) { toast("Escolha primeiro o(s) ficheiro(s) Excel.", true); return; }
+
+  let linhasDoentes = [], linhasAval = [];
+  try {
+    for (const f of files) {
+      const wb = await lerFicheiroExcel(f);
+      wb.SheetNames.forEach(nome => {
+        const linhas = XLSX.utils.sheet_to_json(wb.Sheets[nome], { defval: "" });
+        if (!linhas.length) return;
+        const cols = Object.keys(linhas[0]);
+        if (cols.includes("Acessos Vasculares")) linhasDoentes = linhasDoentes.concat(linhas);
+        else if (cols.includes("Qa (ml/min)")) linhasAval = linhasAval.concat(linhas);
+      });
+    }
+  } catch (e) {
+    console.error(e); toast("Não foi possível ler o ficheiro: " + e.message, true); return;
+  }
+  if (!linhasDoentes.length && !linhasAval.length) {
+    toast("Os ficheiros não parecem ser exportações desta página.", true); return;
+  }
+
+  // ---- Doentes ----
+  const idsDoentes = new Set(doentes.map(d => d.id));
+  const nomesExistentes = new Set(doentes.map(d => normTxt(d.nome)));
+  let novosD = 0, ignoradosD = 0;
+  linhasDoentes.forEach(l => {
+    const nome = String(l["Nome"] || "").trim();
+    if (!nome) return;
+    const id = String(l["ID"] || "").trim() || uid();
+    if (idsDoentes.has(id) || nomesExistentes.has(normTxt(nome))) { ignoradosD++; return; }
+    const criadoEm = celulaParaISO(l["Data de Registo"]) || todayISO();
+    const acessos = lista(l["Acessos Vasculares"]).map(txt => {
+      const m = /^(FAV|EAV|CVC)\s*\((.*)\)\s*(\[em maturação\])?$/i.exec(txt);
+      return {
+        id: uid(),
+        tipoAcesso: m ? m[1].toUpperCase() : "FAV",
+        localizacao: m ? m[2].trim() : txt,
+        emMaturacao: !!(m && m[3]),
+        criadoEm
+      };
+    });
+    doentes.push({ id, nome, turno: String(l["Turno"] || ""), medico: String(l["Médico"] || ""), criadoEm, acessos });
+    idsDoentes.add(id); nomesExistentes.add(normTxt(nome));
+    novosD++;
+  });
+
+  // ---- Avaliações ----
+  const idsAval = new Set(avaliacoes.map(a => a.id));
+  const labelParaMotivo = Object.fromEntries(Object.entries(MOTIVO_LABEL).map(([k, v]) => [normTxt(v), k]));
+  const fremitos = ["normopulsatil", "hipopulsatil", "hiperpulsatil"];
+  let novasA = 0, ignoradasA = 0, semDoente = [];
+  linhasAval.forEach(l => {
+    const id = String(l["ID"] || "").trim() || uid();
+    if (idsAval.has(id)) { ignoradasA++; return; }
+    const doente = doentes.find(d => normTxt(d.nome) === normTxt(l["Doente"]));
+    if (!doente) { semDoente.push(String(l["Doente"] || "?")); return; }
+    const tipo = String(l["Tipo de Acesso"] || "FAV").trim().toUpperCase();
+    const loc = String(l["Localização do Acesso"] || "").trim();
+    let acesso = doente.acessos.find(a => a.tipoAcesso === tipo && normTxt(a.localizacao) === normTxt(loc))
+              || doente.acessos.find(a => a.tipoAcesso === tipo);
+    if (!acesso) {
+      acesso = { id: uid(), tipoAcesso: tipo, localizacao: loc || "—", emMaturacao: false, criadoEm: doente.criadoEm };
+      doente.acessos.push(acesso);
+    }
+    const data = celulaParaISO(l["Data"]);
+    const qa = numOuNull(l["Qa (ml/min)"]);
+    if (!data || qa == null) { semDoente.push(`${l["Doente"]} (data ou Qa em falta)`); return; }
+    const fremitoTxt = normTxt(l["Frémito"]).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const motivos = lista(l["Motivos do Alarme"]).map(m => labelParaMotivo[normTxt(m)]).filter(Boolean);
+    avaliacoes.push({
+      id, doenteId: doente.id, acessoId: acesso.id, data,
+      sinaisInflamatorios: simNao(l["Sinais Inflamatórios"]),
+      sinaisInflamatoriosTipos: lista(l["Tipos de Sinais Inflamatórios"]),
+      aneurisma: simNao(l["Aneurisma"]),
+      aneurismaTipo: String(l["Estádio do Aneurisma"] || ""),
+      sopro: normTxt(l["Sopro"]).startsWith("desc") ? "descontinuo" : "continuo",
+      fremito: fremitos.includes(fremitoTxt) ? fremitoTxt : "normopulsatil",
+      veiasColaterais: simNao(l["Veias Colaterais"]),
+      qa,
+      recirculacao: numOuNull(l["Taxa de Recirculação (%)"]),
+      qb: numOuNull(l["Qb da Recirculação (ml/min)"]),
+      referenciacaoTexto: String(l["Referenciação"] || "").trim(),
+      medicoInformado: simNao(l["Médico Informado"]),
+      dataReferenciacao: celulaParaISO(l["Data de Referenciação"]),
+      alarme: simNao(l["Alarme"]) || motivos.length > 0,
+      motivos,
+      criadoEm: Date.now()
+    });
+    idsAval.add(id);
+    novasA++;
+  });
+
+  saveDoentes();
+  saveAvaliacoes();
+  let msg = `Importados: ${novosD} doente(s) e ${novasA} avaliação(ões).`;
+  if (ignoradosD || ignoradasA) msg += ` Já existiam (ignorados): ${ignoradosD} doente(s), ${ignoradasA} avaliação(ões).`;
+  if (semDoente.length) msg += ` Não importadas ${semDoente.length} avaliação(ões) sem doente correspondente: ${[...new Set(semDoente)].slice(0, 10).join(", ")}${semDoente.length > 10 ? "…" : ""}. Importe também o ficheiro de Doentes.`;
+  out.textContent = msg;
+  toast(`Importação concluída: ${novosD} doente(s), ${novasA} avaliação(ões).`);
+  document.getElementById("importFicheiros").value = "";
 });
 
 /* ======================= INIT ======================= */
