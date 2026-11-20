@@ -33,6 +33,11 @@
   nav.tabs button{background:transparent;border:none;color:#e6f4f2;padding:14px 14px;font-size:14px;cursor:pointer;border-bottom:3px solid transparent;transition:.15s;}
   nav.tabs button:hover{background:rgba(255,255,255,.08);}
   nav.tabs button.active{color:#fff;border-bottom-color:#fff;font-weight:600;}
+  .seg-tabs{display:flex;flex-wrap:wrap;border-bottom:2px solid var(--border);margin:4px 0 16px;}
+  .seg-tabs label{position:relative;margin:0 0 -2px;padding:10px 16px;cursor:pointer;font-size:14px;font-weight:500;color:var(--muted);border-bottom:3px solid transparent;}
+  .seg-tabs label:hover{color:var(--text);}
+  .seg-tabs label:has(input:checked){color:var(--primary-dark);border-bottom-color:var(--primary);font-weight:700;}
+  .seg-tabs input{position:absolute;opacity:0;pointer-events:none;}
   .user-area{display:flex;align-items:center;gap:12px;font-size:13px;color:#e6f4f2;padding:8px 0;flex-wrap:wrap;}
   .user-area button{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.4);color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px;}
   .user-area button:hover{background:rgba(255,255,255,.25);}
@@ -260,12 +265,10 @@
             <input type="text" id="avalData" placeholder="DD/MM/AAAA" maxlength="10" inputmode="numeric" required>
           </div>
         </div>
-        <div class="field">
-          <label>Tipo de registo</label>
-          <div class="radio-group">
-            <label><input type="radio" name="avalTipoRegisto" value="completa" checked> Avaliação completa (exame físico + Qa)</label>
-            <label><input type="radio" name="avalTipoRegisto" value="medicoes"> Só Qa / Qb / Recirculação</label>
-          </div>
+        <div class="seg-tabs" role="tablist" aria-label="Tipo de registo">
+          <label><input type="radio" name="avalTipoRegisto" value="exame"> Exame físico</label>
+          <label><input type="radio" name="avalTipoRegisto" value="medicoes"> Qa / Qb / Recirculação</label>
+          <label><input type="radio" name="avalTipoRegisto" value="completa" checked> Avaliação completa</label>
         </div>
         <div class="grid cols-2" id="blocoClinico">
           <div class="field">
@@ -313,7 +316,7 @@
             </div>
           </div>
         </div>
-        <div class="card" style="margin:6px 0 0;padding:14px 16px;background:#f8fafc;">
+        <div class="card" id="blocoMedicoes" style="margin:6px 0 0;padding:14px 16px;background:#f8fafc;">
           <h3 style="margin-bottom:4px;">Medições</h3>
           <p class="subtitle" id="medicoesAjuda" style="margin:0 0 10px;">Qa obrigatório; Qb e recirculação opcionais.</p>
           <div class="grid cols-3">
@@ -776,6 +779,20 @@ function getUltimaAvaliacaoAcesso(acessoId) {
   return lista.length ? lista[lista.length - 1] : null;
 }
 function isSoMedicoes(a) { return a.tipoRegisto === "medicoes"; }
+function isSoExame(a) { return a.tipoRegisto === "exame"; }
+const TIPO_REGISTO_LABEL = { completa: "Avaliação completa", exame: "Só exame físico", medicoes: "Só medições" };
+const MOTIVOS_QA = ["qaBaixo", "decrescimo"];
+// Estado de alarme de um acesso: junta o último Qa registado e o último exame físico registado
+// (podem vir de registos diferentes). null = nunca avaliado.
+function estadoAlarmeAcesso(acessoId) {
+  const lista = getAvaliacoesAcesso(acessoId).slice().reverse();
+  const ultQa = lista.find(a => a.qa != null);
+  const ultExame = lista.find(a => !isSoMedicoes(a));
+  if (!ultQa && !ultExame) return null;
+  const alarmeQa = !!ultQa && (ultQa.motivos || []).some(m => MOTIVOS_QA.includes(m));
+  const alarmeExame = !!ultExame && (ultExame.motivos || []).some(m => !MOTIVOS_QA.includes(m));
+  return alarmeQa || alarmeExame;
+}
 // Última avaliação estritamente anterior a uma data dada (para calcular decréscimo e evitar comparar consigo própria ao editar)
 function getAvaliacaoAnterior(acessoId, data, excludeId) {
   const lista = getAvaliacoesAcesso(acessoId).filter(a => a.id !== excludeId && a.qa != null);
@@ -874,8 +891,7 @@ function renderDashboard() {
   const todosAcessos = doentes.flatMap(d => d.acessos || []);
 
   const estados = todosAcessos.map(a => {
-    const u = getUltimaAvaliacaoAcesso(a.id);
-    return u ? u.alarme : null;
+    return estadoAlarmeAcesso(a.id);
   });
   const comAlarme = estados.filter(e => e === true).length;
   const semAlarme = estados.filter(e => e === false).length;
@@ -1027,8 +1043,7 @@ function renderDoentes() {
   }
   const rows = doentes.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => {
     const estadosD = d.acessos.map(a => {
-      const u = getUltimaAvaliacaoAcesso(a.id);
-      return u ? u.alarme : null;
+      return estadoAlarmeAcesso(a.id);
     });
     let badge;
     if (estadosD.some(e => e === true)) badge = `<span class="badge alarme">Alarme</span>`;
@@ -1218,7 +1233,7 @@ function renderHistoricoTable(historicoDesc) {
         ${a.referenciacaoTexto ? `<div style="margin-top:4px;">${escapeHtml(a.referenciacaoTexto)}</div>` : ""}
       </td></tr>` : "";
     return `<tr>
-      <td>${formatDatePT(a.data)}${soMed ? `<br><span class="badge muted">Só medições</span>` : ""}</td>
+      <td>${formatDatePT(a.data)}${soMed || isSoExame(a) ? `<br><span class="badge muted">${TIPO_REGISTO_LABEL[a.tipoRegisto]}</span>` : ""}</td>
       <td>${a.qa != null ? `${a.qa} ml/min` : traco}</td>
       <td>${variacao}</td>
       <td>${a.qb != null ? `${a.qb} ml/min` : traco}</td>
@@ -1284,6 +1299,7 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
 
   const tipoRegisto = tipoRegistoAtual();
   const soMed = tipoRegisto === "medicoes";
+  const soExame = tipoRegisto === "exame";
 
   const inflamatoriosSim = !soMed && document.querySelector('input[name=avalInflamatorios]:checked').value === "sim";
   const inflamatoriosTipos = inflamatoriosSim ? Array.from(document.querySelectorAll('input[name=avalInflamatoriosTipo]:checked')).map(el => el.value) : [];
@@ -1293,10 +1309,10 @@ document.getElementById("formAvaliacao").addEventListener("submit", e => {
   const aneurismaTipo = aneurismaSim ? document.getElementById("avalAneurismaTipo").value : "";
   if (aneurismaSim && !aneurismaTipo) { toast("Selecione o tipo de aneurisma.", true); return; }
 
-  const qaVal = document.getElementById("avalQa").value;
-  const recircVal = document.getElementById("avalRecirculacao").value;
-  const qbVal = document.getElementById("avalQb").value;
-  if (!soMed && qaVal === "") { toast("Indique o Qa.", true); return; }
+  const qaVal = soExame ? "" : document.getElementById("avalQa").value;
+  const recircVal = soExame ? "" : document.getElementById("avalRecirculacao").value;
+  const qbVal = soExame ? "" : document.getElementById("avalQb").value;
+  if (tipoRegisto === "completa" && qaVal === "") { toast("Indique o Qa.", true); return; }
   if (soMed && qaVal === "" && recircVal === "" && qbVal === "") { toast("Indique pelo menos o Qa, o Qb ou a recirculação.", true); return; }
 
   const dados = {
@@ -1365,12 +1381,14 @@ function tipoRegistoAtual() {
   return el ? el.value : "completa";
 }
 function updateTipoRegistoVisibility() {
-  const soMed = tipoRegistoAtual() === "medicoes";
+  const tipo = tipoRegistoAtual();
+  const soMed = tipo === "medicoes";
   document.getElementById("blocoClinico").style.display = soMed ? "none" : "";
-  document.getElementById("avalQa").required = !soMed;
+  document.getElementById("blocoMedicoes").style.display = tipo === "exame" ? "none" : "";
+  document.getElementById("avalQa").required = tipo === "completa";
   document.getElementById("qaOpcional").style.display = soMed ? "inline" : "none";
   document.getElementById("medicoesAjuda").textContent = soMed
-    ? "Registo só de medições: preencha o que tiver (Qa, Qb e/ou recirculação). Sem exame físico."
+    ? "Preencha o que tiver (Qa, Qb e/ou recirculação)."
     : "Qa obrigatório; Qb e recirculação opcionais.";
 }
 document.querySelectorAll('input[name=avalTipoRegisto]').forEach(r => r.addEventListener("change", updateTipoRegistoVisibility));
@@ -1402,7 +1420,7 @@ function editAvaliacao(id) {
   document.getElementById("avalDoente").value = a.doenteId;
   populateAvalAcessoSelect(a.doenteId, a.acessoId);
   document.getElementById("avalData").value = formatDatePT(a.data);
-  document.querySelector(`input[name=avalTipoRegisto][value=${isSoMedicoes(a) ? "medicoes" : "completa"}]`).checked = true;
+  document.querySelector(`input[name=avalTipoRegisto][value=${TIPO_REGISTO_LABEL[a.tipoRegisto] ? a.tipoRegisto : "completa"}]`).checked = true;
   updateTipoRegistoVisibility();
   document.querySelector(`input[name=avalInflamatorios][value=${a.sinaisInflamatorios ? "sim" : "nao"}]`).checked = true;
   updateInflamatoriosVisibility();
@@ -1449,7 +1467,8 @@ function renderPrioridades() {
     if (atraso > 0) situacao = `<span class="badge alarme">Atrasado ${atraso} dia(s)</span>`;
     else if (atraso >= -7) situacao = `<span class="badge warn">Faltam ${-atraso} dia(s)</span>`;
     else situacao = `<span class="badge ok">Faltam ${-atraso} dia(s)</span>`;
-    const alarmeAtual = ultima ? (ultima.alarme ? `<span class="badge alarme">Alarme</span>` : `<span class="badge ok">Sem alarme</span>`) : `<span class="badge muted">Sem avaliação</span>`;
+    const estadoAc = estadoAlarmeAcesso(a.id);
+    const alarmeAtual = estadoAc === null ? `<span class="badge muted">Sem avaliação</span>` : (estadoAc ? `<span class="badge alarme">Alarme</span>` : `<span class="badge ok">Sem alarme</span>`);
     return `<tr class="clickable" data-id="${d.id}">
       <td>${escapeHtml(d.nome)}</td>
       <td>${a.tipoAcesso} — ${escapeHtml(a.localizacao)}</td>
@@ -1475,10 +1494,7 @@ function renderPrioridades() {
 /* ======================= TIPOS DE ACESSO ======================= */
 
 function estadoDoenteBadge(d) {
-  const estados = d.acessos.filter(a => a.tipoAcesso !== "CVC").map(a => {
-    const u = getUltimaAvaliacaoAcesso(a.id);
-    return u ? u.alarme : null;
-  });
+  const estados = d.acessos.filter(a => a.tipoAcesso !== "CVC").map(a => estadoAlarmeAcesso(a.id));
   if (!estados.length) return `<span class="badge muted">Não aplicável</span>`;
   if (estados.some(e => e === true)) return `<span class="badge alarme">Alarme</span>`;
   if (estados.every(e => e === false)) return `<span class="badge ok">Sem alarme</span>`;
@@ -1546,7 +1562,7 @@ function linhaExcelAvaliacao(a, comMedico) {
       "Tipo de Acesso": acesso ? acesso.tipoAcesso : "",
       "Localização do Acesso": acesso ? acesso.localizacao : "",
       Data: a.data,
-      "Tipo de Registo": isSoMedicoes(a) ? "Só medições" : "Avaliação completa",
+      "Tipo de Registo": TIPO_REGISTO_LABEL[a.tipoRegisto] || TIPO_REGISTO_LABEL.completa,
       "Sinais Inflamatórios": isSoMedicoes(a) ? "" : (a.sinaisInflamatorios ? "Sim" : "Não"),
       "Tipos de Sinais Inflamatórios": (a.sinaisInflamatoriosTipos || []).join("; "),
       Aneurisma: isSoMedicoes(a) ? "" : (a.aneurisma ? "Sim" : "Não"),
@@ -1752,15 +1768,17 @@ document.getElementById("importBtn").addEventListener("click", async () => {
     }
     const data = celulaParaISO(l["Data"]);
     const qa = numOuNull(l["Qa (ml/min)"]);
-    const soMed = normTxt(l["Tipo de Registo"]).startsWith("só") || normTxt(l["Tipo de Registo"]).startsWith("so ");
+    const trImp = normTxt(l["Tipo de Registo"]);
+    const tipoImp = trImp.includes("exame") ? "exame" : (trImp.includes("medi") ? "medicoes" : "completa");
+    const soMed = tipoImp === "medicoes";
     const qbImp = numOuNull(l["Qb (ml/min)"] !== undefined ? l["Qb (ml/min)"] : l["Qb da Recirculação (ml/min)"]);
     const recImp = numOuNull(l["Taxa de Recirculação (%)"]);
-    if (!data || (!soMed && qa == null) || (soMed && qa == null && qbImp == null && recImp == null)) { semDoente.push(`${l["Doente"]} (data ou Qa em falta)`); return; }
+    if (!data || (tipoImp === "completa" && qa == null) || (soMed && qa == null && qbImp == null && recImp == null)) { semDoente.push(`${l["Doente"]} (data ou Qa em falta)`); return; }
     const fremitoTxt = normTxt(l["Frémito"]).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const motivos = lista(l["Motivos do Alarme"]).map(m => labelParaMotivo[normTxt(m)]).filter(Boolean);
     avaliacoes.push({
       id, doenteId: doente.id, acessoId: acesso.id, data,
-      tipoRegisto: soMed ? "medicoes" : "completa",
+      tipoRegisto: tipoImp,
       sinaisInflamatorios: simNao(l["Sinais Inflamatórios"]),
       sinaisInflamatoriosTipos: lista(l["Tipos de Sinais Inflamatórios"]),
       aneurisma: simNao(l["Aneurisma"]),
