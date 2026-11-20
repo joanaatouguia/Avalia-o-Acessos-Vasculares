@@ -143,6 +143,7 @@
     <button data-view="ficha">Ficha do Doente</button>
     <button data-view="avaliacao">Nova Avaliação</button>
     <button data-view="prioridades">Prioridades</button>
+    <button data-view="tiposacesso">Tipos de Acesso</button>
     <button data-view="relatorios">Relatórios</button>
   </nav>
   <div class="user-area">
@@ -209,6 +210,7 @@
               <select id="novoAcessoTipo">
                 <option value="FAV">FAV</option>
                 <option value="EAV">EAV</option>
+                <option value="CVC">CVC</option>
               </select>
             </div>
             <div class="field loc-field">
@@ -343,6 +345,19 @@
   </section>
 
   <!-- PRIORIDADES -->
+  <section id="view-tiposacesso" class="view">
+    <div class="card">
+      <h2 id="tituloSoCvc">Doentes com CVC como único acesso</h2>
+      <p class="subtitle">Doentes cujo único acesso vascular registado é um CVC.</p>
+      <div id="listaSoCvc"></div>
+    </div>
+    <div class="card">
+      <h2 id="tituloMultiAcesso">Doentes com mais de um acesso</h2>
+      <p class="subtitle">Doentes com dois ou mais acessos vasculares registados (ex: FAV + CVC, FAV + EAV).</p>
+      <div id="listaMultiAcesso"></div>
+    </div>
+  </section>
+
   <section id="view-prioridades" class="view">
     <div class="card">
       <h2>Prioridades de avaliação</h2>
@@ -541,6 +556,7 @@ function refreshView() {
     renderFichaConteudo(id);
   }
   else if (currentView === "prioridades") renderPrioridades();
+  else if (currentView === "tiposacesso") renderTiposAcesso();
   // "Nova Avaliação" não é redesenhada para não apagar um formulário a meio do preenchimento.
 }
 
@@ -782,6 +798,7 @@ function switchView(name, opts) {
   if (name === "ficha") renderFicha(opts && opts.doenteId);
   if (name === "avaliacao") renderFormAvaliacao(opts && opts.doenteId, opts && opts.acessoId);
   if (name === "prioridades") renderPrioridades();
+  if (name === "tiposacesso") renderTiposAcesso();
 }
 
 function toast(msg, isDanger) {
@@ -1126,7 +1143,7 @@ function renderAcessoSection(acesso) {
     <div class="card">
       <div class="flex-between">
         <h3 style="margin:0;">${acesso.tipoAcesso} — ${escapeHtml(acesso.localizacao)}${tituloExtra}</h3>
-        <button class="btn" id="btnNovaAval-${acesso.id}">+ Nova Avaliação</button>
+        ${acesso.tipoAcesso !== "CVC" ? `<button class="btn" id="btnNovaAval-${acesso.id}">+ Nova Avaliação</button>` : ""}
       </div>
       <p class="subtitle" style="margin-top:8px;">Próxima avaliação: ${proximaHtml}</p>
       ${historicoDesc.length ? `<canvas id="chartQa-${acesso.id}"></canvas>` : `<div class="empty">Sem avaliações registadas para este acesso.</div>`}
@@ -1190,11 +1207,12 @@ function removeAvaliacao(id, doenteId) {
 function populateAvalAcessoSelect(doenteId, preselectAcessoId) {
   const sel = document.getElementById("avalAcesso");
   const doente = doentes.find(d => d.id === doenteId);
-  if (!doente || !doente.acessos.length) {
-    fillSelect(sel, [], "— sem acessos —");
+  const avaliaveis = doente ? doente.acessos.filter(a => a.tipoAcesso !== "CVC") : [];
+  if (!avaliaveis.length) {
+    fillSelect(sel, [], doente ? "— sem FAV/EAV (CVC não avalia Qa) —" : "— sem acessos —");
     return;
   }
-  fillSelect(sel, doente.acessos.map(a => ({ value: a.id, label: `${a.tipoAcesso} — ${a.localizacao}` })));
+  fillSelect(sel, avaliaveis.map(a => ({ value: a.id, label: `${a.tipoAcesso} — ${a.localizacao}` })));
   if (preselectAcessoId) sel.value = preselectAcessoId;
 }
 
@@ -1379,6 +1397,48 @@ function renderPrioridades() {
   </table></div>`;
 
   cont.querySelectorAll("tr[data-id]").forEach(tr => {
+    tr.addEventListener("click", () => switchView("ficha", { doenteId: tr.dataset.id }));
+  });
+}
+
+/* ======================= TIPOS DE ACESSO ======================= */
+
+function estadoDoenteBadge(d) {
+  const estados = d.acessos.filter(a => a.tipoAcesso !== "CVC").map(a => {
+    const u = getUltimaAvaliacaoAcesso(a.id);
+    return u ? u.alarme : null;
+  });
+  if (!estados.length) return `<span class="badge muted">Não aplicável</span>`;
+  if (estados.some(e => e === true)) return `<span class="badge alarme">Alarme</span>`;
+  if (estados.every(e => e === false)) return `<span class="badge ok">Sem alarme</span>`;
+  if (estados.some(e => e === false)) return `<span class="badge warn">Avaliação parcial</span>`;
+  return `<span class="badge muted">Sem avaliação</span>`;
+}
+
+function tabelaDoentesAcessos(lista, vazio) {
+  if (!lista.length) return `<div class="empty">${vazio}</div>`;
+  const rows = lista.slice().sort((a,b) => a.nome.localeCompare(b.nome)).map(d => `
+    <tr class="clickable" data-id="${d.id}">
+      <td>${escapeHtml(d.nome)}</td>
+      <td>${d.acessos.map(a => `<strong>${a.tipoAcesso}</strong> (${escapeHtml(a.localizacao)}${a.emMaturacao ? " — em maturação" : ""})`).join("<br>")}</td>
+      <td>${escapeHtml(d.turno)}</td>
+      <td>${escapeHtml(d.medico)}</td>
+      <td>${estadoDoenteBadge(d)}</td>
+    </tr>`).join("");
+  return `<div class="table-scroll"><table>
+    <thead><tr><th>Nome</th><th>Acessos</th><th>Turno</th><th>Médico</th><th>Estado</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table></div>`;
+}
+
+function renderTiposAcesso() {
+  const soCvc = doentes.filter(d => d.acessos.length > 0 && d.acessos.every(a => a.tipoAcesso === "CVC"));
+  const multi = doentes.filter(d => d.acessos.length > 1);
+  document.getElementById("tituloSoCvc").textContent = `Doentes com CVC como único acesso (${soCvc.length})`;
+  document.getElementById("tituloMultiAcesso").textContent = `Doentes com mais de um acesso (${multi.length})`;
+  document.getElementById("listaSoCvc").innerHTML = tabelaDoentesAcessos(soCvc, "Nenhum doente tem CVC como único acesso.");
+  document.getElementById("listaMultiAcesso").innerHTML = tabelaDoentesAcessos(multi, "Nenhum doente tem mais de um acesso registado.");
+  document.querySelectorAll("#view-tiposacesso tr[data-id]").forEach(tr => {
     tr.addEventListener("click", () => switchView("ficha", { doenteId: tr.dataset.id }));
   });
 }
