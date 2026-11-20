@@ -375,6 +375,30 @@
       <button class="btn" id="exportAvaliacoesBtn" style="margin-left:10px;">Exportar Avaliações (Excel)</button>
     </div>
     <div class="card">
+      <h2>Exportar avaliações por mês ou médico</h2>
+      <p class="subtitle">Escolha o mês, o médico responsável, ou ambos. Pode também separar o ficheiro em folhas.</p>
+      <div class="grid cols-3">
+        <div class="field">
+          <label for="filtroMes">Mês</label>
+          <select id="filtroMes"></select>
+        </div>
+        <div class="field">
+          <label for="filtroMedico">Médico responsável</label>
+          <select id="filtroMedico"></select>
+        </div>
+        <div class="field">
+          <label for="filtroFolhas">Organizar em folhas</label>
+          <select id="filtroFolhas">
+            <option value="">Uma só folha</option>
+            <option value="mes">Uma folha por mês</option>
+            <option value="medico">Uma folha por médico</option>
+          </select>
+        </div>
+      </div>
+      <p id="filtroContagem" class="subtitle" style="margin:0 0 12px;"></p>
+      <button class="btn" id="exportFiltradoBtn">Exportar avaliações (Excel)</button>
+    </div>
+    <div class="card">
       <h2>Importar Excel</h2>
       <p class="subtitle">Recupere dados a partir dos ficheiros exportados por esta página (Doentes_….xlsx e Avaliacoes_….xlsx). Pode escolher os dois ficheiros de uma vez. Registos que já existam não são duplicados.</p>
       <input type="file" id="importFicheiros" accept=".xlsx,.xls" multiple style="margin-bottom:12px;">
@@ -557,6 +581,7 @@ function refreshView() {
   }
   else if (currentView === "prioridades") renderPrioridades();
   else if (currentView === "tiposacesso") renderTiposAcesso();
+  else if (currentView === "relatorios") renderFiltrosRelatorio();
   // "Nova Avaliação" não é redesenhada para não apagar um formulário a meio do preenchimento.
 }
 
@@ -799,6 +824,7 @@ function switchView(name, opts) {
   if (name === "avaliacao") renderFormAvaliacao(opts && opts.doenteId, opts && opts.acessoId);
   if (name === "prioridades") renderPrioridades();
   if (name === "tiposacesso") renderTiposAcesso();
+  if (name === "relatorios") renderFiltrosRelatorio();
 }
 
 function toast(msg, isDanger) {
@@ -1460,10 +1486,17 @@ document.getElementById("exportDoentesBtn").addEventListener("click", () => {
 
 document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
   if (!avaliacoes.length) { toast("Sem avaliações para exportar.", true); return; }
-  const data = avaliacoes.slice().sort((a,b) => a.data.localeCompare(b.data)).map(a => {
+  const data = avaliacoes.slice().sort((a,b) => a.data.localeCompare(b.data)).map(a => linhaExcelAvaliacao(a, false));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Avaliações");
+  XLSX.writeFile(wb, `Avaliacoes_${todayISO()}.xlsx`);
+});
+
+function linhaExcelAvaliacao(a, comMedico) {
     const d = doentes.find(x => x.id === a.doenteId);
     const acesso = d && d.acessos.find(x => x.id === a.acessoId);
-    return {
+    const linha = {
       ID: a.id, Doente: d ? d.nome : "(removido)",
       "Tipo de Acesso": acesso ? acesso.tipoAcesso : "",
       "Localização do Acesso": acesso ? acesso.localizacao : "",
@@ -1483,11 +1516,90 @@ document.getElementById("exportAvaliacoesBtn").addEventListener("click", () => {
       "Médico Informado": a.medicoInformado ? "Sim" : "Não",
       "Data de Referenciação": a.dataReferenciacao || ""
     };
-  });
-  const ws = XLSX.utils.json_to_sheet(data);
+    if (!comMedico) return linha;
+    // Versão filtrada: acrescenta o médico responsável logo a seguir ao doente e a data em DD/MM/AAAA
+    const { ID, Doente, ...resto } = linha;
+    return { ID, Doente, "Médico Responsável": d ? d.medico : "", ...resto, Data: formatDatePT(a.data) };
+}
+
+/* ---- Exportação filtrada por mês / médico ---- */
+
+const NOMES_MESES = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
+function rotuloMes(ym) {
+  const [y, m] = ym.split("-");
+  return `${NOMES_MESES[Number(m) - 1]} ${y}`;
+}
+function medicoDaAvaliacao(a) {
+  const d = doentes.find(x => x.id === a.doenteId);
+  return d ? d.medico : "";
+}
+
+function renderFiltrosRelatorio() {
+  const selMes = document.getElementById("filtroMes");
+  const selMed = document.getElementById("filtroMedico");
+  const mesAtual = selMes.value, medAtual = selMed.value;
+  const meses = [...new Set(avaliacoes.map(a => (a.data || "").slice(0, 7)).filter(Boolean))].sort().reverse();
+  const medicos = [...new Set([...MEDICOS, ...doentes.map(d => d.medico).filter(Boolean)])];
+  fillSelect(selMes, [{ value: "", label: "Todos os meses" }, ...meses.map(m => ({ value: m, label: rotuloMes(m) }))]);
+  fillSelect(selMed, [{ value: "", label: "Todos os médicos" }, ...medicos.map(m => ({ value: m, label: m }))]);
+  if (meses.includes(mesAtual)) selMes.value = mesAtual;
+  if (medicos.includes(medAtual)) selMed.value = medAtual;
+  atualizarContagemFiltro();
+}
+
+function avaliacoesFiltradas() {
+  const mes = document.getElementById("filtroMes").value;
+  const med = document.getElementById("filtroMedico").value;
+  return avaliacoes
+    .filter(a => !mes || (a.data || "").startsWith(mes))
+    .filter(a => !med || medicoDaAvaliacao(a) === med)
+    .sort((a, b) => a.data.localeCompare(b.data));
+}
+
+function atualizarContagemFiltro() {
+  const lista = avaliacoesFiltradas();
+  const comAlarme = lista.filter(a => a.alarme).length;
+  document.getElementById("filtroContagem").textContent = lista.length
+    ? `${lista.length} avaliação(ões) selecionada(s), ${comAlarme} com alarme.`
+    : "Nenhuma avaliação com estes filtros.";
+}
+["filtroMes", "filtroMedico"].forEach(id => document.getElementById(id).addEventListener("change", atualizarContagemFiltro));
+
+function nomeFolha(txt, usados) {
+  let base = String(txt || "Sem médico").replace(/[\\/?*\[\]:]/g, " ").slice(0, 31).trim() || "Folha";
+  let nome = base, i = 2;
+  while (usados.has(nome)) nome = `${base.slice(0, 28)} ${i++}`;
+  usados.add(nome);
+  return nome;
+}
+
+document.getElementById("exportFiltradoBtn").addEventListener("click", () => {
+  const lista = avaliacoesFiltradas();
+  if (!lista.length) { toast("Nenhuma avaliação com estes filtros.", true); return; }
+  const mes = document.getElementById("filtroMes").value;
+  const med = document.getElementById("filtroMedico").value;
+  const modo = document.getElementById("filtroFolhas").value;
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Avaliações");
-  XLSX.writeFile(wb, `Avaliacoes_${todayISO()}.xlsx`);
+  const usados = new Set();
+  if (!modo) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lista.map(a => linhaExcelAvaliacao(a, true))), nomeFolha("Avaliações", usados));
+  } else {
+    const grupos = new Map();
+    lista.forEach(a => {
+      const chave = modo === "mes" ? a.data.slice(0, 7) : (medicoDaAvaliacao(a) || "Sem médico");
+      if (!grupos.has(chave)) grupos.set(chave, []);
+      grupos.get(chave).push(a);
+    });
+    [...grupos.keys()].sort().forEach(chave => {
+      const titulo = modo === "mes" ? rotuloMes(chave) : chave;
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(grupos.get(chave).map(a => linhaExcelAvaliacao(a, true))), nomeFolha(titulo, usados));
+    });
+  }
+  const partes = ["Avaliacoes"];
+  if (mes) partes.push(mes);
+  if (med) partes.push(med.replace(/[^A-Za-zÀ-ÿ0-9]+/g, "_").replace(/^_|_$/g, ""));
+  if (!mes && !med) partes.push(todayISO());
+  XLSX.writeFile(wb, partes.join("_") + ".xlsx");
 });
 
 /* ======================= IMPORTAR EXCEL ======================= */
